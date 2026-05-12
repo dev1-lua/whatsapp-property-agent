@@ -40,6 +40,7 @@ function summarize(t: any) {
     propertyName: t.propertyName,
     propertyCode: t.propertyCode,
     unit: t.unit,
+    tenantName: t.tenantName ?? null,
     assignedVendorName: t.assignedVendorName ?? null,
     quoteAmount: t.quoteAmount ?? null,
     createdAt: t.createdAt,

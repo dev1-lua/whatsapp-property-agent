@@ -2,6 +2,11 @@
  * Shared admin scope resolution. Admin contacts carry an `adminScope` of either
  * `'all'` (portfolio-wide) or a `string[]` of propertyCodes. Env-allowlisted
  * admins (no contact row) default to 'all'. Anything else is denied.
+ *
+ * propertyCode comparisons are case- and whitespace-insensitive so that admin
+ * scope written as `['temple-04']` still matches ticket data with
+ * `propertyCode: 'TEMPLE-04'`. The original casing is preserved in responses
+ * for display purposes.
  */
 
 import { Contacts } from '../../services/data.js';
@@ -12,6 +17,10 @@ export interface ScopeResolution {
   ok: boolean;
   scope: AdminScope;
   message?: string;
+}
+
+function normCode(s: unknown): string {
+  return String(s ?? '').trim().toUpperCase();
 }
 
 export async function resolveAdminScope(user: any): Promise<ScopeResolution> {
@@ -48,8 +57,12 @@ export function intersectRequestedProperty(
 ): { allowed: boolean; effectiveScope: AdminScope } {
   if (!requested) return { allowed: true, effectiveScope: scope };
   if (scope === 'all') return { allowed: true, effectiveScope: [requested] };
-  if (Array.isArray(scope) && scope.includes(requested)) {
-    return { allowed: true, effectiveScope: [requested] };
+  if (Array.isArray(scope)) {
+    const want = normCode(requested);
+    const normalizedScope = scope.map(normCode);
+    if (normalizedScope.includes(want)) {
+      return { allowed: true, effectiveScope: [requested] };
+    }
   }
   return { allowed: false, effectiveScope: scope };
 }
@@ -58,6 +71,7 @@ export function intersectRequestedProperty(
 export function recordInScope(record: any, scope: AdminScope): boolean {
   if (scope === 'all') return true;
   if (!Array.isArray(scope)) return true;
-  const code = String(record?.propertyCode ?? '');
-  return scope.includes(code);
+  const code = normCode(record?.propertyCode);
+  if (!code) return false;
+  return scope.some((s) => normCode(s) === code);
 }

@@ -87,6 +87,7 @@ export class ListPendingApprovalsTool implements LuaTool {
               ? t.quoteAmount - threshold
               : null,
           assignedVendorName: t.assignedVendorName ?? null,
+          tenantName: t.tenantName ?? null,
           propertyName: t.propertyName,
           propertyCode: t.propertyCode,
           unit: t.unit,

@@ -9,7 +9,7 @@
 import { LuaTool, User } from 'lua-cli';
 import { z } from 'zod';
 import { AuditEvents, Tickets } from '../../services/data.js';
-import { resolveAdminScope } from './_scope.js';
+import { resolveAdminScope, recordInScope } from './_scope.js';
 
 function summarize(e: any) {
   return {
@@ -53,14 +53,16 @@ export class ListRecentActivityTool implements LuaTool {
       const cap = input.limit ?? 20;
 
       // For scope-aware filtering we need to know which ticketIds are in scope.
+      // Audit events without a ticketId (e.g. system events) are excluded from
+      // scoped views — if we can't prove the event belongs to an allowed
+      // property, we hide it. Env-allowlisted ('all') admins see everything.
       let allowedTicketIds: Set<string> | null = null;
       if (scopeRes.scope !== 'all' && Array.isArray(scopeRes.scope)) {
-        const allowed = scopeRes.scope;
         const ticketRes: any = await Tickets.get({}, 1, 1000);
         const tickets: any[] = (ticketRes?.data ?? []).map((e: any) => e.data ?? {});
         allowedTicketIds = new Set(
           tickets
-            .filter((t: any) => allowed.includes(String(t?.propertyCode ?? '')))
+            .filter((t: any) => recordInScope(t, scopeRes.scope))
             .map((t: any) => String(t?.ticketId ?? ''))
             .filter(Boolean)
         );
