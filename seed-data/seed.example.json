@@ -1,5 +1,5 @@
 {
-  "_comment": "Seed payload for the demo. POST this to the seed-data webhook with method=POST. The webhook deduplicates by email/phone/propertyCode, so re-running is safe.",
+  "_comment": "Seed payload for the demo (phone-first unified contacts). POST to /seed-data with method=POST. The webhook dedups by phone, so re-running is safe. Each contact row has roles[] (1+ of tenant/vendor/admin); admin and tenant roles can co-exist on one row.",
   "_usage": "curl -X POST $WEBHOOK_BASE/seed-data -H 'Content-Type: application/json' -d @seed.example.json",
 
   "properties": [
@@ -38,83 +38,119 @@
     }
   ],
 
-  "tenants": [
+  "contacts": [
     {
       "name": "Laura Murphy",
       "phones": ["353861000001"],
       "email": "laura.murphy@demo.test",
-      "propertyCode": "TEMPLE-04",
-      "unit": "3B",
-      "_note": "Primary demo tenant. Phone is the persona-pill target for 'Tenant: Laura'"
+      "roles": ["tenant"],
+      "units": [
+        { "propertyCode": "TEMPLE-04", "unit": "3B" }
+      ],
+      "_note": "Primary demo tenant — single-unit"
     },
     {
       "name": "James O'Brien",
       "phones": ["353861000002"],
       "email": "james.obrien@demo.test",
-      "propertyCode": "WESTGATE-07",
-      "unit": "7"
+      "roles": ["tenant"],
+      "units": [
+        { "propertyCode": "WESTGATE-07", "unit": "7" },
+        { "propertyCode": "WESTGATE-07", "unit": "12" }
+      ],
+      "_note": "Multi-unit tenant — exercises the 'which unit?' persona prompt"
     },
     {
       "name": "Aoife Walsh",
       "phones": ["353861000003"],
       "email": "aoife.walsh@demo.test",
-      "propertyCode": "TEMPLE-04",
-      "unit": "1A"
+      "roles": ["tenant"],
+      "units": [
+        { "propertyCode": "TEMPLE-04", "unit": "1A" }
+      ]
     },
     {
       "name": "Karim Hassan",
       "phones": ["353861000004"],
       "email": "karim.hassan@demo.test",
-      "propertyCode": "QUAY-12",
-      "unit": "Suite 4"
-    }
-  ],
+      "roles": ["tenant"],
+      "units": [
+        { "propertyCode": "QUAY-12", "unit": "Suite 4" }
+      ]
+    },
 
-  "vendors": [
     {
-      "name": "Dublin Plumbing Co.",
+      "name": "Sean Kelly",
       "companyName": "Dublin Plumbing Co.",
       "contactName": "Sean Kelly",
       "phones": ["353112000001"],
       "email": "ops@dublinplumbing.demo",
+      "roles": ["vendor"],
       "specialties": ["plumbing", "heating"],
       "hourlyRate": 65,
       "rating": 4.7,
       "jobsCompleted": 142,
+      "active": true,
       "_note": "Primary demo vendor for the kitchen-sink scenario"
     },
     {
-      "name": "ElecPro Ireland",
+      "name": "Maria Doyle",
       "companyName": "ElecPro Ireland",
       "contactName": "Maria Doyle",
       "phones": ["353112000002"],
       "email": "dispatch@elecpro.demo",
+      "roles": ["vendor"],
       "specialties": ["electrical"],
       "hourlyRate": 75,
       "rating": 4.8,
-      "jobsCompleted": 89
+      "jobsCompleted": 89,
+      "active": true
     },
     {
-      "name": "CoolAir HVAC Services",
+      "name": "Tom Brennan",
       "companyName": "CoolAir HVAC Services",
       "contactName": "Tom Brennan",
       "phones": ["353112000003"],
       "email": "service@coolair.demo",
+      "roles": ["vendor"],
       "specialties": ["hvac", "appliance"],
       "hourlyRate": 70,
       "rating": 4.5,
-      "jobsCompleted": 67
+      "jobsCompleted": 67,
+      "active": true
     },
     {
-      "name": "StructureFix Building Services",
+      "name": "Padraig Fitzgerald",
       "companyName": "StructureFix Building Services",
       "contactName": "Padraig Fitzgerald",
       "phones": ["353112000004"],
       "email": "info@structurefix.demo",
+      "roles": ["vendor"],
       "specialties": ["structural", "appliance", "other"],
       "hourlyRate": 85,
       "rating": 4.6,
-      "jobsCompleted": 51
+      "jobsCompleted": 51,
+      "active": true
+    },
+
+    {
+      "name": "Niamh Byrne",
+      "phones": ["353871000001"],
+      "email": "niamh.byrne@demo.test",
+      "roles": ["admin"],
+      "adminScope": "all",
+      "_note": "Demo property manager — admin across all properties"
+    },
+    {
+      "name": "Conor Daly",
+      "phones": ["353871000002"],
+      "email": "conor.daly@demo.test",
+      "roles": ["admin", "tenant"],
+      "adminScope": ["TEMPLE-04"],
+      "units": [
+        { "propertyCode": "TEMPLE-04", "unit": "2C" }
+      ],
+      "_note": "Multi-role: manages TEMPLE-04 AND rents unit 2C there. Exercises admin+tenant disambiguation."
     }
   ]
 }

@@ -5,10 +5,10 @@
  *   DELETE — { method:'DELETE', confirm:true, full?:boolean }
  *
  * confirm:true (alone) clears tickets, audit_events, communications, escalations.
- * confirm:true + full:true also clears tenants, vendors, properties.
+ * confirm:true + full:true also clears contacts (all tenants/vendors/admins) and properties.
  *
  * Response: { success, deleted: { tickets, audit_events, communications,
- *                                  escalations, tenants?, vendors?, properties? } }
+ *                                  escalations, contacts?, properties? } }
  */
 
 import { LuaWebhook } from 'lua-cli';
@@ -17,8 +17,7 @@ import {
   AuditEvents,
   Communications,
   Escalations,
-  Tenants,
-  Vendors,
+  Contacts,
   Properties
 } from '../../services/data.js';
 
@@ -84,11 +83,11 @@ export default new LuaWebhook({
       errors.push(...r.errors);
     }
 
-    // Full reset: also nuke directory data
+    // Full reset: also nuke directory data. Use Contacts directly (not the
+    // role-filtered Tenants/Vendors views) so admin-only rows get cleared too.
     if (full) {
       const dirColls = [
-        { key: 'tenants', coll: Tenants },
-        { key: 'vendors', coll: Vendors },
+        { key: 'contacts', coll: Contacts },
         { key: 'properties', coll: Properties }
       ];
       for (const { key, coll } of dirColls) {

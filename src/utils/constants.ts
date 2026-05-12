@@ -129,11 +129,13 @@ export const EMERGENCY_KEYWORDS = [
   'structural collapse'
 ];
 
-// Lua Data collection names — six collections back the entire system
+// Lua Data collection names. `contacts` is the unified phone-first identity
+// directory — one row per human, role-tagged. Replaces the old `tenants` and
+// `vendors` collections. The Tenants/Vendors wrappers in src/services/data.ts
+// expose role-filtered views over `contacts` so existing callers keep working.
 export const COLLECTIONS = {
   PROPERTIES: 'properties',
-  TENANTS: 'tenants',
-  VENDORS: 'vendors',
+  CONTACTS: 'contacts',
   TICKETS: 'tickets',
   AUDIT_EVENTS: 'audit_events',
   COMMUNICATIONS: 'communications',
@@ -141,6 +143,16 @@ export const COLLECTIONS = {
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
+
+// Roles a contact can hold. A single contact may hold any combination
+// (e.g. ['admin','tenant'] for a building manager who also rents a unit).
+export const CONTACT_ROLES = {
+  TENANT: 'tenant',
+  VENDOR: 'vendor',
+  ADMIN: 'admin'
+} as const;
+
+export type ContactRole = (typeof CONTACT_ROLES)[keyof typeof CONTACT_ROLES];
 
 // Default approval threshold in firm's currency (override via env APPROVAL_THRESHOLD)
 export const DEFAULT_APPROVAL_THRESHOLD = 500;

@@ -1,26 +1,36 @@
 /**
- * register_self_as_tenant — onboards a new caller as a tenant inline.
+ * register_self_as_tenant — onboards a caller as a tenant inline.
  *
  * Used when get_user_context returns userType=unregistered AND the caller has
  * provided their name and property/unit. Captures the channel-provided phone +
  * email automatically from `User.get()._luaProfile`, so the agent never has to
  * ask the user for those.
  *
+ * In the unified-contacts model, this writes a `contacts` row with
+ * `roles: ['tenant']` and a `units[]` array containing the just-supplied unit.
+ *
+ * Idempotency / multi-role behavior:
+ *   - If a contact with this phone already exists:
+ *       • role 'tenant' is APPENDED to roles[] if missing
+ *       • the new {propertyCode, unit} is APPENDED to units[] if not already there
+ *     This keeps a building manager who also rents a unit on a single row.
+ *
  * Side effects:
- *   - Creates a `tenants` Data row
- *   - Updates the User record with userType=tenant + identity fields so the
+ *   - Creates / updates a `contacts` row
+ *   - Updates the User record with userType=tenant + cached identity so the
  *     next turn fast-paths through get_user_context
  */
 
 import { LuaTool, User, env } from 'lua-cli';
 import { z } from 'zod';
-import { Tenants, Properties } from '../../services/data.js';
+import { Contacts, Properties } from '../../services/data.js';
+import { CONTACT_ROLES, type ContactRole } from '../../utils/constants.js';
 import { collectPhones, normalizeEmail } from '../../utils/identity.js';
 
 export class RegisterSelfAsTenantTool implements LuaTool {
   name = 'register_self_as_tenant';
   description =
-    "Add the current caller to the system as a tenant. Use this immediately when `get_user_context` returned userType='unregistered' AND the user has told you their name + which property/unit they live in. The phone/email come from the channel automatically — don't ask the user for those. After registration succeeds you can immediately proceed with creating their maintenance ticket.";
+    "Add the current caller to the system as a tenant. Use this immediately when `get_user_context` returned userType='unregistered' AND the user has told you their name + which property/unit they live in. The phone/email come from the channel automatically — don't ask the user for those. Multi-unit tenants and existing contacts (e.g. admins who are also tenants) are handled by appending — no duplicate rows. After registration succeeds you can immediately proceed with creating their maintenance ticket.";
 
   inputSchema = z.object({
     name: z.string().describe("Tenant's full name as they provided it"),
@@ -72,14 +82,11 @@ export class RegisterSelfAsTenantTool implements LuaTool {
       const profile = user?._luaProfile ?? {};
       const userId: string | undefined = profile?.userId ?? user?.id;
 
-      // Channel-supplied identifiers (auto-captured)
       const profilePhones: string[] = [];
       if (profile?.phone) profilePhones.push(profile.phone);
       if (Array.isArray(profile?.mobileNumbers)) profilePhones.push(...profile.mobileNumbers);
       if (Array.isArray(profile?.phones)) profilePhones.push(...profile.phones);
 
-      // Local-dev overrides ONLY when the channel didn't supply real values.
-      // Real WhatsApp/email senders always win — never replace them.
       const hasRealProfilePhone = profilePhones.length > 0;
       const hasRealProfileEmail = !!(profile?.email || user?.email);
       const testPhone = !hasRealProfilePhone ? env('TEST_USER_PHONE') : null;
@@ -127,23 +134,31 @@ export class RegisterSelfAsTenantTool implements LuaTool {
         };
       }
 
-      // ----- Dedupe by phone (with brute-scan fallback, same as get_user_context) -----
-      let existing: any = null;
+      const propertyData = property.data ?? {};
+      const newUnit = {
+        propertyCode: propertyData.propertyCode,
+        propertyId: property.id,
+        propertyName: propertyData.name,
+        unit: input.unit
+      };
+
+      // ----- Dedupe by phone (brute-scan fallback) -----
+      let existing: { id: string; data: any } | null = null;
       if (phones.length > 0) {
         try {
-          const r: any = await Tenants.get({ phones: { $in: phones } }, 1, 5);
-          existing = r?.data?.[0] ?? null;
+          const r: any = await Contacts.get({ phones: { $in: phones } }, 1, 5);
+          const first = r?.data?.[0];
+          if (first) existing = { id: first.id, data: first.data ?? {} };
         } catch {
           /* fall through */
         }
-        // Fallback: $in on array fields can silently miss. Brute-scan to be safe.
         if (!existing) {
           try {
-            const all: any = await Tenants.get({}, 1, 1000);
+            const all: any = await Contacts.get({}, 1, 1000);
             for (const entry of all?.data ?? []) {
               const stored: string[] = Array.isArray(entry?.data?.phones) ? entry.data.phones : [];
               if (stored.some((p: string) => phones.includes(p))) {
-                existing = entry;
+                existing = { id: entry.id, data: entry.data ?? {} };
                 break;
               }
             }
@@ -152,50 +167,79 @@ export class RegisterSelfAsTenantTool implements LuaTool {
           }
         }
       }
+
+      const now = new Date().toISOString();
+
       if (existing) {
-        const data = existing.data ?? {};
+        // Merge: ensure 'tenant' is in roles, append unit if not already there.
+        const currentRoles: ContactRole[] = Array.isArray(existing.data.roles) ? existing.data.roles : [];
+        const mergedRoles: ContactRole[] = currentRoles.includes(CONTACT_ROLES.TENANT)
+          ? currentRoles
+          : [...currentRoles, CONTACT_ROLES.TENANT];
+
+        const currentUnits: any[] = Array.isArray(existing.data.units) ? existing.data.units : [];
+        const unitAlreadyPresent = currentUnits.some(
+          (u) => u?.propertyCode === newUnit.propertyCode && (u?.unit ?? '') === (newUnit.unit ?? '')
+        );
+        const mergedUnits = unitAlreadyPresent ? currentUnits : [...currentUnits, newUnit];
+
+        const mergedPhones = Array.from(new Set([...(existing.data.phones ?? []), ...phones]));
+        const mergedData = {
+          ...existing.data,
+          name: existing.data.name || input.name,
+          phones: mergedPhones,
+          email: existing.data.email || email || undefined,
+          roles: mergedRoles,
+          units: mergedUnits,
+          userId: userId ?? existing.data.userId,
+          updatedAt: now
+        };
+
         try {
-          await Tenants.update(existing.id, { ...data, userId, updatedAt: new Date().toISOString() });
+          await Contacts.update(existing.id, mergedData);
           await user.update?.({
-            userType: 'tenant',
+            userType: CONTACT_ROLES.TENANT,
+            contactId: existing.id,
             identityId: existing.id,
             tenantId: existing.id,
-            tenantName: data.name,
-            propertyId: data.propertyId,
-            propertyCode: data.propertyCode,
-            propertyName: data.propertyName,
-            unit: data.unit
+            tenantName: mergedData.name,
+            propertyId: newUnit.propertyId,
+            propertyCode: newUnit.propertyCode,
+            propertyName: newUnit.propertyName,
+            unit: newUnit.unit
           });
         } catch {
           /* noop */
         }
+
         return {
           success: true,
-          alreadyRegistered: true,
+          alreadyRegistered: unitAlreadyPresent,
           tenantId: existing.id,
+          contactId: existing.id,
           identity: {
             id: existing.id,
-            name: data.name,
-            propertyId: data.propertyId,
-            propertyCode: data.propertyCode,
-            propertyName: data.propertyName,
-            unit: data.unit
+            name: mergedData.name,
+            roles: mergedRoles,
+            propertyId: newUnit.propertyId,
+            propertyCode: newUnit.propertyCode,
+            propertyName: newUnit.propertyName,
+            unit: newUnit.unit,
+            unitCount: mergedUnits.length
           },
-          message: `Already on file as ${data.name} at ${data.propertyName ?? data.propertyCode}${data.unit ? `, unit ${data.unit}` : ''}.`
+          message: unitAlreadyPresent
+            ? `Already on file as ${mergedData.name} at ${newUnit.propertyName}${newUnit.unit ? `, unit ${newUnit.unit}` : ''}.`
+            : `Updated ${mergedData.name}'s record — added unit ${newUnit.unit ?? ''} at ${newUnit.propertyName}.`
         };
       }
 
-      // ----- Create new tenant -----
-      const propertyData = property.data ?? {};
-      const now = new Date().toISOString();
-      const tenantPayload = {
+      // ----- Create new contact -----
+      const payload: Record<string, any> = {
         name: input.name,
         phones,
         email: email || undefined,
-        propertyId: property.id,
-        propertyCode: propertyData.propertyCode,
-        propertyName: propertyData.name,
-        unit: input.unit,
+        roles: [CONTACT_ROLES.TENANT],
+        units: [newUnit],
         userId,
         active: true,
         createdAt: now,
@@ -207,11 +251,12 @@ export class RegisterSelfAsTenantTool implements LuaTool {
         .join(' ')
         .trim();
 
-      const created: any = await Tenants.create(tenantPayload, searchText);
+      const created: any = await Contacts.create(payload, searchText);
 
       try {
         await user.update?.({
-          userType: 'tenant',
+          userType: CONTACT_ROLES.TENANT,
+          contactId: created.id,
           identityId: created.id,
           tenantId: created.id,
           tenantName: input.name,
@@ -227,13 +272,16 @@ export class RegisterSelfAsTenantTool implements LuaTool {
       return {
         success: true,
         tenantId: created.id,
+        contactId: created.id,
         identity: {
           id: created.id,
           name: input.name,
+          roles: [CONTACT_ROLES.TENANT],
           propertyId: property.id,
           propertyCode: propertyData.propertyCode,
           propertyName: propertyData.name,
-          unit: input.unit
+          unit: input.unit,
+          unitCount: 1
         },
         message: `Welcome ${input.name}! Registered at ${propertyData.name}${input.unit ? `, unit ${input.unit}` : ''}.`
       };
@@ -255,7 +303,6 @@ async function resolveProperty(
   code?: string,
   name?: string
 ): Promise<{ id: string; data: any } | null> {
-  // 1. Exact propertyCode match (case-insensitive)
   if (code) {
     const wanted = code.trim();
     try {
@@ -270,7 +317,6 @@ async function resolveProperty(
     }
   }
 
-  // 2. Substring match on name / address / propertyCode (case-insensitive)
   if (name) {
     const needle = name.trim().toLowerCase();
     try {
@@ -286,8 +332,6 @@ async function resolveProperty(
     }
   }
 
-  // Semantic search intentionally NOT used as a fallback — it returns weak/wrong
-  // matches that defeat the auto-create flow.
   return null;
 }
 
