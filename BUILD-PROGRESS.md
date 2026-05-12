@@ -79,15 +79,85 @@ All 6 scenarios pass on staged v1.0.6:
 
 | Scenario | Phone | Expected | Got |
 |---|---|---|---|
-| Single-unit tenant | 353861000001 (Laura) | userType=tenant, unitCount=1 | ✅ "Recognized tenant: Laura at No.4 Temple Place, unit 3B" |
-| Multi-unit tenant | 353861000002 (James) | userType=tenant, unitCount=2, ask which unit | ✅ "Recognized tenant: James — has 2 units (WESTGATE-07 7, WESTGATE-07 12). On ticket creation, ASK which unit they're reporting from" |
-| Admin-only | 353871000001 (Niamh) | userType=admin, adminScope=all | ✅ "Recognized admin/manager: Niamh (scope: all properties). Skip onboarding." |
-| Multi-role default | 353871000002 (Conor) | userType=admin (precedence) | ✅ admin mode, adminScope=['TEMPLE-04'] |
-| Multi-role viewAs=tenant | 353871000002 + viewAs:tenant | userType=tenant, unit 2C | ✅ flips to tenant, "unit 2C" |
-| Unknown phone | 353999999999 | userType=unregistered, intent-inference guidance | ✅ |
+| Single-unit tenant | (Laura) | userType=tenant, unitCount=1 | ✅ |
+| Multi-unit tenant | (James) | userType=tenant, unitCount=2, ask which unit | ✅ |
+| Admin-only | (Niamh) | userType=admin, adminScope=all | ✅ |
+| Multi-role default | (Conor) | userType=admin (precedence) | ✅ |
+| Multi-role viewAs=tenant | (Conor + viewAs:tenant) | userType=tenant | ✅ |
+| Unknown phone | random | userType=unregistered, intent-inference | ✅ |
 | Register new tenant | new phone + property/unit | contact row written, lookup succeeds | ✅ |
 
 Seed populates 3 properties + 10 contacts (4 tenants, 4 vendors, 2 admins one of whom is multi-role).
+
+### M1 polish round — discovered + fixed live (2026-05-13)
+
+After the first production deploy of M1, browser-side testing surfaced four additional bugs that the sandbox tool tests couldn't have caught:
+
+1. **HTML tenants table showed empty Property/Unit** — fixed: `/tenants` webhook `flatten()` synthesizes flat `propertyName`/`propertyCode`/`unit`/`unitCount` from `units[0]` for HTML compat.
+2. **"Property Manager" dropdown entry had `phone: ''`** (hardcoded) — fixed: new `/admins` webhook + HTML `loadAdmins()` populates dropdown from real admin contacts with real phones.
+3. **`LuaPop.init({userContext})` is silently dropped** — the docs imply it's not a real init option. Identity never reached `_luaProfile.mobileNumbers`. Fixed: HTML auto-sends an identity intro into the chat textarea via React-compatible value setter (LuaPop's actual UI path) on every persona change. Intro bubble is then hidden from view via MutationObserver so the dropdown looks like a silent auth switch.
+4. **`sessionId` not rotated → LuaPop reloaded the prior thread on every "Clear chat"** — fixed: `genSessionId()` called on persona-change / New thread / Clear chat. Fresh thread every reset.
+
+Plus persona-side fix: tightened `get_user_context` tool description + persona Section 0 to instruct the LLM to **re-call** `get_user_context` whenever a later message provides identity (was previously locked to "first-turn only" behavior, causing James's intro after the leak message to be ignored).
+
+### M3 — admin/manager stats tools (2026-05-13)
+
+The demo-blocking gap from M1: the admin persona branch greeted correctly but
+had no tools to actually answer "how many tickets are open?" / "what's pending?"
+M3 closes it.
+
+**Tools added (all in `src/tools/admin/`):**
+
+| Tool | Purpose |
+|---|---|
+| `get_open_ticket_count` | Total of non-closed tickets. Optional `groupBy` (status / urgency / issueType / propertyCode) and `propertyCode` filter. |
+| `list_tickets_in_progress` | Tickets in {vendor_contacted, quoted, pending_approval, approved, in_progress, on_hold} sorted urgency-first, then most-recent. |
+| `list_pending_approvals` | Tickets at `pending_approval` with quoteAmount, vendor, waiting-time, threshold context. |
+| `list_recent_activity` | Most-recent audit events newest-first. Optional `eventType`. Scope-aware via ticketId → propertyCode join. |
+| `vendors_by_specialty` | Full vendor roster, optional specialty + activeOnly filters. Sorted by rating desc. |
+
+Shared `_scope.ts` helper enforces `userType==='admin'` and resolves `adminScope` (`'all' | propertyCode[]`) from the contact row. `intersectRequestedProperty` rejects out-of-scope `propertyCode` overrides with `error: 'out_of_scope'`. Env-allowlisted admins (no contacts row) get `'all'`.
+
+**Wired into:** `tenantSkill` (manager uses the same skill — persona routes by `userType`). 5 new tools = 37 total.
+
+**Persona v15 — ADMIN MODE rewrite:** explicit question → tool routing table. No raw-data queries; each intent is mapped to the specific stats tool. No seed-data names in the routing examples (uses `<propertyCode>` placeholders per `feedback_no_hardcoded_seed_in_persona.md`).
+
+**Push result (sandbox staged 2026-05-13):**
+- tenant skill v1.0.20, vendor skill v1.0.13 (unchanged code, version bump from push)
+- 12 webhooks at v1.0.12, admins at v1.0.6
+- 2 jobs at v1.0.11, preprocessor v1.0.11, 2 postprocessors v1.0.11
+- persona v15 staged (not active in prod until `lua deploy`)
+
+**Sandbox smoke:** compile passed (57 primitives), runtime alive via tenant-onboarding path. Admin-path data tests deferred to live prod (sandbox Data collections are empty — no Niamh, no seed). Tools follow the same patterns as `LookupVendorsTool` / `MyTicketsTool` / `open-tickets` webhook, which all work in prod.
+
+**Awaiting:** `/lua-deploy` + Playwright pass on the live Netlify URL (pick Niamh from admin dropdown, run the four question intents, verify the right tool is called and real data returns).
+
+### M1 production E2E test (2026-05-13, via Playwright on live Netlify)
+
+All six dropdown personas verified end-to-end on `fastidious-malasada-285366.netlify.app`:
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Multi-unit tenant — auto-intro sent, agent identified by phone, asked "which unit?" before ticket creation | ✅ |
+| 2 | 🧹 Clear chat — chat emptied, persona reset to anonymous, sessionId rotated | ✅ |
+| 3 | Admin-only (all properties) — recognized as admin, skipped onboarding, offered to surface stats | ✅ |
+| 4 | Multi-role contact selected via Admin optgroup — admin mode with correct scope | ✅ |
+| 5 | Same multi-role contact via Tenant optgroup — viewAs flipped to tenant, single unit | ✅ |
+| 6 | Vendor — vendor mode with specialties, offered available jobs / assignments | ✅ |
+| 7 | New tenant created via HTML form → appears in dropdown immediately → agent recognizes them | ✅ |
+| 8 | New admin created via /admins webhook curl → appears in admin dropdown after refresh | ✅ |
+
+### Anti-patterns recorded (2026-05-13)
+
+- **No seed-data hard-coding in LLM-facing strings.** Persona text + Zod `.describe()` strings + tool `description` fields must use placeholders (`<name>`, `<propertyCode>`, etc.) not real seed names/phones/cities. Drove `propertyCity` default through `env('DEFAULT_CITY')` instead of literal `'Dublin'`. Memory: `feedback_no_hardcoded_seed_in_persona.md`.
+
+### M1 live state (post-deploy 2026-05-13)
+
+- **Lua agent:** persona v14, all skills/webhooks/jobs at v1.0.11 (admins webhook at v1.0.5).
+- **HTML:** Netlify `fastidious-malasada-285366.netlify.app` — silent auto-intro, `genSessionId` rotation, `/admins` integration, multi-unit badge in dropdown, 🧹 Clear chat button.
+- **Data shape:** unified `contacts` collection only — `Tenants`/`Vendors`/`Admins` data wrappers are role-filtered views over it. Ticket FKs (`tenantId`/`vendorId`) reference contact ids.
+
+---
 
 
 ### 🚩 FLAGGED — two platform constraints discovered in research

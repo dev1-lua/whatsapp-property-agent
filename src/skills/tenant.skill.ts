@@ -3,6 +3,7 @@ import { LuaSkill } from 'lua-cli';
 // Identity (CALL FIRST, ALWAYS)
 import { GetUserContextTool } from '../tools/intake/GetUserContextTool.js';
 import { RegisterSelfAsTenantTool } from '../tools/intake/RegisterSelfAsTenantTool.js';
+import { RegisterSelfAsVendorTool } from '../tools/intake/RegisterSelfAsVendorTool.js';
 
 // Intake
 import { CreateMaintenanceTicketTool } from '../tools/intake/CreateMaintenanceTicketTool.js';
@@ -32,15 +33,24 @@ import { CloseTicketTool } from '../tools/completion/CloseTicketTool.js';
 // Escalation
 import { EscalateTicketTool } from '../tools/escalation/EscalateTicketTool.js';
 
+// Admin stats (manager-on-WhatsApp / dropdown-admin views)
+import { GetOpenTicketCountTool } from '../tools/admin/GetOpenTicketCountTool.js';
+import { ListTicketsInProgressTool } from '../tools/admin/ListTicketsInProgressTool.js';
+import { ListPendingApprovalsTool } from '../tools/admin/ListPendingApprovalsTool.js';
+import { ListRecentActivityTool } from '../tools/admin/ListRecentActivityTool.js';
+import { VendorsBySpecialtyTool } from '../tools/admin/VendorsBySpecialtyTool.js';
+
 export const tenantSkill = new LuaSkill({
   name: 'tenant',
   description:
-    'Tenant-facing maintenance flow plus ops-side vendor coordination, approvals, completion tracking, and escalations.',
+    'Tenant-facing maintenance flow plus ops-side vendor coordination, approvals, completion tracking, escalations, and admin/manager read-only stats.',
   context: `
     Tools for tenants reporting maintenance issues, plus operator-side coordination of vendors and finance.
 
     **User Identification (ALWAYS call first)**
     - get_user_context: identifies tenant vs vendor vs admin from phone/email. NO input needed.
+    - register_self_as_tenant: onboard an unregistered tenant inline (name + property/unit)
+    - register_self_as_vendor: onboard an unregistered vendor inline (companyName + specialties[])
 
     **Tenant intake**
     - create_maintenance_ticket — create ticket; auto-classifies + auto-assigns vendor
@@ -70,6 +80,13 @@ export const tenantSkill = new LuaSkill({
     **Escalation**
     - escalate_ticket — create an escalation entry + notify manager
 
+    **Admin stats (admin/manager only — read-only)**
+    - get_open_ticket_count — total of non-closed tickets, optionally grouped by status/urgency/issueType/propertyCode
+    - list_tickets_in_progress — tickets currently being worked (vendor_contacted → in_progress, plus on_hold)
+    - list_pending_approvals — tickets stuck at status=pending_approval with quote/waiting-time context
+    - list_recent_activity — most recent audit events newest-first, scope-aware
+    - vendors_by_specialty — vendor roster filtered by specialty + active flag
+
     **Workflow rules**
     - tickets progress reported → vendor_contacted → quoted → [pending_approval] → approved → in_progress → completed → closed
     - quotes > APPROVAL_THRESHOLD route to finance; ≤ auto-approve
@@ -79,6 +96,7 @@ export const tenantSkill = new LuaSkill({
   tools: [
     new GetUserContextTool(),
     new RegisterSelfAsTenantTool(),
+    new RegisterSelfAsVendorTool(),
     new CreateMaintenanceTicketTool(),
     new UploadIssueImagesTool(),
     new UpdateTicketDetailsTool(),
@@ -96,7 +114,12 @@ export const tenantSkill = new LuaSkill({
     new RequestTenantConfirmationTool(),
     new RecordTenantDisputeTool(),
     new CloseTicketTool(),
-    new EscalateTicketTool()
+    new EscalateTicketTool(),
+    new GetOpenTicketCountTool(),
+    new ListTicketsInProgressTool(),
+    new ListPendingApprovalsTool(),
+    new ListRecentActivityTool(),
+    new VendorsBySpecialtyTool()
   ]
 });
 
