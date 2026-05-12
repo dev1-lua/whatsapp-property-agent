@@ -858,8 +858,15 @@ function buildIdentityIntro(persona) {
  * widget UI: drop text into the textarea (which lives in a shadow DOM), let
  * React update its internal state via the native value setter, then click
  * the Send button. Polls until the widget is mounted (init is async).
+ *
+ * Options:
+ *   - hideUserBubble: if true, the resulting user bubble is hidden from view
+ *     (used for the persona-pill auto-intro — the agent processes the
+ *     identity message but the user only sees the agent's response, so the
+ *     dropdown looks like it silently authenticated them).
  */
-function sendDirectMessage(msg) {
+function sendDirectMessage(msg, opts = {}) {
+  const { hideUserBubble = false } = opts;
   let tries = 0;
   const interval = setInterval(() => {
     tries++;
@@ -879,6 +886,7 @@ function sendDirectMessage(msg) {
             const stillSendBtn = Array.from(root.querySelectorAll('button'))
               .find(b => b.getAttribute('aria-label') === 'Send message');
             if (stillSendBtn && !stillSendBtn.disabled) stillSendBtn.click();
+            if (hideUserBubble) hideMatchingUserBubble(root, msg);
           } catch (e) { console.warn('send-click failed:', e); }
         }, 250);
       } catch (e) {
@@ -892,8 +900,53 @@ function sendDirectMessage(msg) {
   }, 200);
 }
 
+/**
+ * Watch the chat panel for a user bubble containing `text` and hide it once
+ * it appears. Used to make the auto-intro invisible to the user — the agent
+ * still receives + processes the identity message, but it never shows up as
+ * a user bubble in the UI.
+ */
+function hideMatchingUserBubble(root, text) {
+  const matches = (el) => el.className?.toString().includes('chat-message-bubble-user')
+    && el.textContent?.trim() === text.trim();
+
+  // Try immediately (in case it already rendered)
+  const existing = Array.from(root.querySelectorAll('[class*="chat-message-bubble-user"]'))
+    .find(matches);
+  if (existing) {
+    hideBubbleContainer(existing);
+    return;
+  }
+
+  // Otherwise observe the chat container for new bubbles
+  const observer = new MutationObserver(() => {
+    const found = Array.from(root.querySelectorAll('[class*="chat-message-bubble-user"]'))
+      .find(matches);
+    if (found) {
+      hideBubbleContainer(found);
+      observer.disconnect();
+    }
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  // Safety stop after 10s
+  setTimeout(() => observer.disconnect(), 10000);
+}
+
+function hideBubbleContainer(bubbleEl) {
+  // Hide the whole message row, not just the bubble — also kill the
+  // surrounding container + timestamp so there's no empty gap left.
+  let el = bubbleEl;
+  for (let i = 0; i < 4 && el?.parentElement; i++) {
+    el = el.parentElement;
+    if (el.className?.toString().includes('chat-message-container')) break;
+  }
+  if (el) el.style.display = 'none';
+}
+
 function sendIdentityIntro(persona) {
-  sendDirectMessage(buildIdentityIntro(persona));
+  // The intro is purely for the agent to extract identity — the user doesn't
+  // need to see "Hi I'm me at +mynumber" appear as their own message.
+  sendDirectMessage(buildIdentityIntro(persona), { hideUserBubble: true });
 }
 
 bindScenarioButtons();
