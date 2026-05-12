@@ -37,11 +37,11 @@ export class RegisterSelfAsTenantTool implements LuaTool {
     propertyCode: z
       .string()
       .optional()
-      .describe('Property code if known (e.g. "TEMPLE-04"). Either this or propertyName must be provided.'),
+      .describe('Short property code if known (the slug used in the directory). Either this or propertyName must be provided.'),
     propertyName: z
       .string()
       .optional()
-      .describe('Property name as the user described it (e.g. "No.4 Temple Place"). Used for matching when propertyCode is unknown.'),
+      .describe('Property name as the user described it (full building name or address). Used for matching when propertyCode is unknown.'),
     unit: z
       .string()
       .optional()
@@ -57,7 +57,7 @@ export class RegisterSelfAsTenantTool implements LuaTool {
     propertyCity: z
       .string()
       .optional()
-      .describe('City of the property. Used when auto-creating a new property; defaults to "Dublin" if missing.'),
+      .describe('City of the property. Used when auto-creating a new property; falls back to env DEFAULT_CITY (or empty) if missing.'),
     propertyType: z
       .string()
       .optional()
@@ -115,7 +115,7 @@ export class RegisterSelfAsTenantTool implements LuaTool {
         property = await createPropertyOnDemand({
           name: input.propertyName ?? input.propertyAddress,
           address: input.propertyAddress,
-          city: input.propertyCity ?? 'Dublin',
+          city: input.propertyCity ?? String(env('DEFAULT_CITY') ?? ''),
           type: normalizePropertyType(input.propertyType)
         });
       }

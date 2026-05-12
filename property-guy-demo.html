@@ -850,20 +850,50 @@ function buildIdentityIntro(persona) {
   return `Hi, I'm ${name}${phone ? ` at ${phone}` : ''}.${roleHint}`;
 }
 
-function sendIdentityIntro(persona) {
-  const msg = buildIdentityIntro(persona);
-  // Poll LuaPop.sendMessage until widget is ready (init is async).
+/**
+ * Send a message into the LuaPop chat widget programmatically.
+ *
+ * LuaPop doesn't expose a public sendMessage() and its `userContext` init
+ * option isn't forwarded to the agent in the chat request. So we drive the
+ * widget UI: drop text into the textarea (which lives in a shadow DOM), let
+ * React update its internal state via the native value setter, then click
+ * the Send button. Polls until the widget is mounted (init is async).
+ */
+function sendDirectMessage(msg) {
   let tries = 0;
   const interval = setInterval(() => {
     tries++;
-    if (window.LuaPop && typeof window.LuaPop.sendMessage === 'function') {
-      try { window.LuaPop.sendMessage(msg); } catch (e) { console.warn('intro send failed:', e); }
+    const host = document.getElementById('lua-shadow-root-embedded');
+    const root = host?.shadowRoot;
+    const ta = root?.querySelector('textarea');
+    const sendBtn = root ? Array.from(root.querySelectorAll('button'))
+      .find(b => b.getAttribute('aria-label') === 'Send message') : null;
+    if (ta && sendBtn) {
+      try {
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        nativeSetter.call(ta, msg);
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        // React needs a tick to flip the Send button's disabled state.
+        setTimeout(() => {
+          try {
+            const stillSendBtn = Array.from(root.querySelectorAll('button'))
+              .find(b => b.getAttribute('aria-label') === 'Send message');
+            if (stillSendBtn && !stillSendBtn.disabled) stillSendBtn.click();
+          } catch (e) { console.warn('send-click failed:', e); }
+        }, 250);
+      } catch (e) {
+        console.warn('setValue failed:', e);
+      }
       clearInterval(interval);
-    } else if (tries > 30) {
+    } else if (tries > 60) {
       clearInterval(interval);
-      console.warn('LuaPop.sendMessage never became ready');
+      console.warn('LuaPop textarea never mounted; message skipped:', msg);
     }
   }, 200);
+}
+
+function sendIdentityIntro(persona) {
+  sendDirectMessage(buildIdentityIntro(persona));
 }
 
 bindScenarioButtons();
@@ -1079,14 +1109,12 @@ function bindScenarioButtons() {
         ? (buildIdentityIntro(persona) + ' ' + s.message)
         : s.message;
 
-      // Give the widget time to re-init before sending the message
+      // Inject the combined message via the textarea (LuaPop.sendMessage
+      // doesn't exist — we patch around it). Reuses the sendIdentityIntro
+      // helper which already handles the React-setter + Send-click dance.
       setTimeout(() => {
         try {
-          if (window.LuaPop && typeof window.LuaPop.sendMessage === 'function') {
-            window.LuaPop.sendMessage(combinedMsg);
-          } else {
-            toast('Widget does not expose sendMessage — type the message manually.', 'err');
-          }
+          sendDirectMessage(combinedMsg);
         } catch (e) {
           toast('Scenario send failed: ' + e.message, 'err');
         }

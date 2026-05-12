@@ -82,8 +82,8 @@ export class CreateMaintenanceTicketTool implements LuaTool {
   inputSchema = z.object({
     propertyCode: z
       .string()
-      .describe('Property code (e.g., "1303" or "TEMPLE-04") — usually from get_user_context cache.'),
-    propertyName: z.string().describe('Property name for display (e.g., "No.4 Temple Place").'),
+      .describe('Property code — usually from get_user_context cache.'),
+    propertyName: z.string().describe('Property name for display.'),
     propertyId: z.string().describe('Data id of the property (from get_user_context or tenants record).'),
     tenantId: z.string().describe('Data id of the tenant (tenants.id).'),
     tenantName: z.string().describe('Tenant full name.'),

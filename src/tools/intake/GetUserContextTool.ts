@@ -211,7 +211,7 @@ async function findContact(
 export class GetUserContextTool implements LuaTool {
   name = 'get_user_context';
   description =
-    'ALWAYS call this tool FIRST at the start of every conversation to identify the caller as a tenant, vendor, admin, or unregistered user. Resolves identity from phone/email against the unified contacts directory and caches the result on the user record. Honors a `viewAs` hint from the HTML persona-pill dropdown (`_luaProfile.viewAs`). No input required — falls back to the channel profile automatically.';
+    "Identify the caller against the unified contacts directory. CALL THIS: (a) at the very start of every conversation, AND (b) whenever the user provides a phone number, email, or role hint in any subsequent message — even if they were previously 'unregistered'. PASS the phone/email/viewAs/name extracted from the message as inputs (strip non-digits from phone); do NOT call with empty args when the user just told you their identity. Falls back to channel profile if no inputs are given.";
 
   inputSchema = z.object({
     phone: z
