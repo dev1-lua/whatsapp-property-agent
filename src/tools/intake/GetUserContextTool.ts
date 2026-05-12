@@ -161,15 +161,29 @@ export class GetUserContextTool implements LuaTool {
       const userId: string | undefined = profile?.userId ?? user?.id;
 
       // Build candidates up-front so the fast path can verify the cached
-      // identity still matches what the caller is presenting THIS turn (the
-      // persona pill / different message sender switches identity mid-session).
+      // identity still matches what the caller is presenting THIS turn.
+      // CHANNEL IDENTIFIERS ALWAYS WIN — never replace _luaProfile.phone/email
+      // with a dev env override, or every channel sender gets mis-identified.
       const profilePhones: string[] = [];
       if (profile?.phone) profilePhones.push(profile.phone);
       if (Array.isArray(profile?.mobileNumbers)) profilePhones.push(...profile.mobileNumbers);
       if (Array.isArray(profile?.phones)) profilePhones.push(...profile.phones);
 
-      const phoneCandidates = collectPhones(input.phone, ...profilePhones);
-      const emailCandidates = collectEmails(input.email, profile?.email, user?.email);
+      const hasRealProfilePhone = profilePhones.length > 0;
+      const hasRealProfileEmail = !!(profile?.email || user?.email);
+      const testPhone = !hasRealProfilePhone ? env('TEST_USER_PHONE') : null;
+      const testEmail = !hasRealProfileEmail ? env('TEST_USER_EMAIL') : null;
+      const testPhones = testPhone
+        ? String(testPhone).split(',').map((p) => p.trim()).filter(Boolean)
+        : [];
+
+      const phoneCandidates = collectPhones(input.phone, ...profilePhones, ...testPhones);
+      const emailCandidates = collectEmails(
+        input.email,
+        profile?.email,
+        user?.email,
+        testEmail || undefined
+      );
       const inputProvidedIdentifier = !!(input.phone || input.email);
 
       function cacheStillMatches(entryData: any): boolean {
@@ -254,8 +268,10 @@ export class GetUserContextTool implements LuaTool {
           success: true,
           userType: 'unregistered' as const,
           identity: null,
+          capturedPhone: null,
+          capturedEmail: null,
           message:
-            'No phone or email available for this user. Ask politely for a contact number or email, or direct them to their landlord/property manager.'
+            'No phone or email available for this user. Ask politely for a contact number or email so we can register them.'
         };
       }
 
@@ -349,8 +365,10 @@ export class GetUserContextTool implements LuaTool {
         success: true,
         userType: 'unregistered' as const,
         identity: null,
+        capturedPhone: phoneCandidates[0] ?? null,
+        capturedEmail: emailCandidates[0] ?? null,
         message:
-          'Caller is not registered. Politely let them know they are not in our system and ask them to contact their landlord or property manager to be added. Do NOT proceed with maintenance or vendor operations.'
+          'Caller has no matching tenant or vendor record. Welcome them warmly. Ask their full name and which property + unit they live in. As soon as you have name + property (and unit if applicable), call the `register_self_as_tenant` tool to add them — their phone/email are captured automatically from the channel. Then continue with the maintenance request normally.'
       };
     } catch (err: any) {
       return {

@@ -28,7 +28,9 @@ agent:
     0. **USER IDENTIFICATION (MANDATORY FIRST STEP)**
        - BEFORE saying anything else, call `get_user_context`. No input required.
        - This identifies the caller as tenant, vendor, admin, or unregistered using their phone/email.
-       - **If `userType` is `unregistered`**: politely tell them they are not on the tenant or vendor roster and ask them to contact their landlord/property manager. Do NOT proceed with maintenance requests.
+       - **If `userType` is `unregistered`**: this is a NEW caller. Welcome them warmly and ask their name and which property they live in. Ask for a unit/apartment number ONLY if the property sounds like a multi-unit building — for single-family / whole-building leases, don't pester. As soon as you have name + property, call `register_self_as_tenant`. Their phone/email are captured automatically from the channel — never ask for those.
+          - If the tool returns success → continue with their maintenance request.
+          - If the tool returns `error: 'property_not_found'` → the property isn't in our portfolio yet. Ask the user for the street address and city, then call `register_self_as_tenant` AGAIN with `propertyName`, `propertyAddress`, `propertyCity`, an inferred `propertyType` ("RES"/"COM"/"DEV" — default RES), and `autoCreateIfMissing: true`. This adds the property to the portfolio and registers them in one shot.
        - **If tenant**: switch to TENANT mode. You already know their property — DO NOT ask for address.
        - **If vendor**: switch to VENDOR mode. Greet by company name.
        - **If admin**: switch to ADMIN mode (read-only portfolio Q&A).
@@ -118,64 +120,64 @@ agent:
 skills:
   - name: tenant
     skillId: 64acd927-3f14-4f13-aa92-123b0a79ccd1
-    version: 1.0.3
+    version: 1.0.12
   - name: vendor
     skillId: 0237f1ba-b115-4e02-a6fd-cf8eb24f91ff
-    version: 1.0.4
+    version: 1.0.6
 webhooks:
   - name: properties
-    version: 1.0.2
+    version: 1.0.4
     webhookId: 80fa0cbe-0a0c-4df3-9101-6062ddd1fcfe
   - name: tenants
-    version: 1.0.2
+    version: 1.0.4
     webhookId: 7c3ee39e-2651-4c78-83f1-a3d1a3ef9b37
   - name: vendors
-    version: 1.0.2
+    version: 1.0.4
     webhookId: 983e54ed-f64d-4b89-b031-351427849282
   - name: tickets
-    version: 1.0.2
+    version: 1.0.4
     webhookId: b31c6efa-0807-43c1-81f5-f2fe31eb8c27
   - name: seed-data
-    version: 1.0.2
+    version: 1.0.4
     webhookId: cc4b871f-8521-48bc-87c8-d5072b2aacb2
   - name: clear-data
-    version: 1.0.2
+    version: 1.0.4
     webhookId: 061cb500-b935-448f-9f8d-6b069dca60ed
   - name: vendor-response
-    version: 1.0.2
+    version: 1.0.4
     webhookId: e9dc9d6f-c403-469e-8343-d9afd04522d5
   - name: finance-approval
-    version: 1.0.2
+    version: 1.0.4
     webhookId: da0d8e5c-41a1-4400-8c62-b636c0d3f7ad
   - name: escalation-response
-    version: 1.0.2
+    version: 1.0.4
     webhookId: 1ee8e1cd-99ce-4b8a-817f-83305f6b55d3
   - name: inbound-email
-    version: 1.0.2
+    version: 1.0.4
     webhookId: a9b210cf-9376-4c20-8a4f-d4bda1c6af37
   - name: open-tickets
-    version: 1.0.2
+    version: 1.0.4
     webhookId: a0fd96ae-6e26-4a66-acf1-612eefe2f176
 jobs:
   - jobId: c183e92f-5e3d-4741-8e15-c7aeed79804d
     name: escalation-check
-    version: 1.0.2
+    version: 1.0.3
   - jobId: 48f861dd-14ab-490a-adc1-c7a5377dcfa7
     name: daily-workload-report
-    version: 1.0.2
+    version: 1.0.3
 preprocessors:
   - name: emergency-triage
     preprocessorId: preprocessor_a8e0c7f7-86a4-47dc-955e-2c2828bc527c
-    version: 1.0.2
+    version: 1.0.3
 postprocessors:
   - name: ticket-summary
     postprocessorId: postprocessor_ac0ce9e5-17a2-43c0-8c9b-1475fb5d90eb
-    version: 1.0.2
+    version: 1.0.3
   - name: communication-log
     postprocessorId: postprocessor_488157e6-7d9d-4c63-923b-0601ee4e1791
-    version: 1.0.2
+    version: 1.0.3
 mcpServers: []
 backup:
-  activeVersion: 6
-  lastHash: 5caee0ca9f4c4d087a192bbee3b8141b5547631b88ee4287b0f25e890385adb3
-  lastPushedAt: '2026-05-12T09:28:59.727Z'
+  activeVersion: 12
+  lastHash: 15ffd2a2a7e1dcff46ab05de739e93ebdd1e3bd63fedf161fee1d25391b9657b
+  lastPushedAt: '2026-05-12T13:13:17.584Z'

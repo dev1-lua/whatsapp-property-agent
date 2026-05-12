@@ -2,6 +2,7 @@ import { LuaSkill } from 'lua-cli';
 
 // Identity (CALL FIRST, ALWAYS)
 import { GetUserContextTool } from '../tools/intake/GetUserContextTool.js';
+import { RegisterSelfAsTenantTool } from '../tools/intake/RegisterSelfAsTenantTool.js';
 
 // Intake
 import { CreateMaintenanceTicketTool } from '../tools/intake/CreateMaintenanceTicketTool.js';
@@ -77,6 +78,7 @@ export const tenantSkill = new LuaSkill({
   `,
   tools: [
     new GetUserContextTool(),
+    new RegisterSelfAsTenantTool(),
     new CreateMaintenanceTicketTool(),
     new UploadIssueImagesTool(),
     new UpdateTicketDetailsTool(),
