@@ -21,9 +21,24 @@ import { normalizeEmail, collectPhones } from '../../utils/identity.js';
 function flatten(entry: any) {
   if (!entry) return null;
   const d = entry.data ?? {};
+  // Backward-compat: HTML dashboard reads `propertyName`/`propertyCode`/`unit`
+  // flat. New contacts shape stores all of those inside `units[]`. Synthesize
+  // the flat fields from the first unit so the table renders cleanly. If the
+  // row already has flat fields (legacy admin-webhook writes), they win.
+  const firstUnit = Array.isArray(d.units) && d.units.length > 0 ? d.units[0] : null;
+  const propertyName = d.propertyName ?? firstUnit?.propertyName ?? '';
+  const propertyCode = d.propertyCode ?? firstUnit?.propertyCode ?? '';
+  const propertyId = d.propertyId ?? firstUnit?.propertyId ?? '';
+  const unit = d.unit ?? firstUnit?.unit ?? '';
+  const unitCount = Array.isArray(d.units) ? d.units.length : (unit ? 1 : 0);
   return {
     id: entry.id,
     ...d,
+    propertyName,
+    propertyCode,
+    propertyId,
+    unit,
+    unitCount,
     phone: Array.isArray(d.phones) ? (d.phones[0] ?? '') : (d.phone ?? '')
   };
 }

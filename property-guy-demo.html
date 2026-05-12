@@ -264,9 +264,7 @@
     <span class="persona-label">Demo as</span>
     <select id="persona-select" title="Pick a persona to set the chat widget's userContext">
       <option value="">— anonymous —</option>
-      <optgroup label="Admin" id="persona-admin-group">
-        <option value="admin:manager">Property Manager</option>
-      </optgroup>
+      <optgroup label="Admin / Manager" id="persona-admin-group"></optgroup>
       <optgroup label="Tenants" id="persona-tenants-group"></optgroup>
       <optgroup label="Vendors" id="persona-vendors-group"></optgroup>
     </select>
@@ -791,6 +789,7 @@ document.getElementById('persona-select').addEventListener('change', async (e) =
   // Make sure we have the cache rows for the chosen persona type
   if (val.startsWith('tenant:') && !tenantsCache.length) await loadTenants();
   if (val.startsWith('vendor:') && !vendorsCache.length) await loadVendors();
+  if (val.startsWith('admin:') && !adminsCache.length) await loadAdmins();
   applyPersona(val);
   toolTimeline.clear();
   initLuaPop({ force: true });
@@ -804,6 +803,7 @@ bindScenarioButtons();
 let propertiesCache = [];
 let tenantsCache = [];
 let vendorsCache = [];
+let adminsCache = [];
 
 /* ─── Tools timeline controller ─────────────────────────────────────── */
 const toolTimeline = (function () {
@@ -884,14 +884,25 @@ const toolTimeline = (function () {
 
 /* ─── Persona pill — populate from caches + handle change ──────────── */
 function populatePersonaSelect() {
+  const aGroup = document.getElementById('persona-admin-group');
   const tGroup = document.getElementById('persona-tenants-group');
   const vGroup = document.getElementById('persona-vendors-group');
   if (!tGroup || !vGroup) return;
   const sel = document.getElementById('persona-select');
   const current = sel ? sel.value : '';
 
+  if (aGroup) {
+    aGroup.innerHTML = adminsCache.map(a => {
+      const scope = a.adminScopeLabel || (a.adminScope === 'all' ? 'all properties' : 'limited');
+      const label = `${a.name || 'Manager'} — ${scope}`;
+      return `<option value="admin:${escapeHtml(a.id)}">${escapeHtml(label)}</option>`;
+    }).join('');
+  }
   tGroup.innerHTML = tenantsCache.map(t => {
-    const label = `${t.name || 'Tenant'}${t.propertyName ? ' (' + t.propertyName + (t.unit ? ' ' + t.unit : '') + ')' : ''}`;
+    const unitInfo = t.propertyName
+      ? ' (' + t.propertyName + (t.unit ? ' ' + t.unit : '') + ((t.unitCount > 1) ? ` +${t.unitCount - 1}` : '') + ')'
+      : '';
+    const label = `${t.name || 'Tenant'}${unitInfo}`;
     return `<option value="tenant:${escapeHtml(t.id)}">${escapeHtml(label)}</option>`;
   }).join('');
   vGroup.innerHTML = vendorsCache.map(v => {
@@ -913,25 +924,31 @@ function applyPersona(val) {
   const idx = val.indexOf(':');
   const type = idx >= 0 ? val.slice(0, idx) : val;
   const id = idx >= 0 ? val.slice(idx + 1) : '';
-  if (type === 'admin') {
-    window.__demoPersona = {
-      name: 'Property Manager',
-      email: 'admin@property-guy.demo',
-      phone: '',
-      __personaType: 'admin',
-    };
-    return window.__demoPersona;
+
+  const cache = type === 'admin' ? adminsCache
+              : type === 'tenant' ? tenantsCache
+              : type === 'vendor' ? vendorsCache
+              : null;
+  if (!cache) {
+    window.__demoPersona = null;
+    return null;
   }
-  const record = (type === 'tenant' ? tenantsCache : vendorsCache).find(x => x.id === id);
+
+  const record = cache.find(x => x.id === id);
   if (!record) {
     window.__demoPersona = null;
     return null;
   }
+
   const phone = (Array.isArray(record.phones) && record.phones[0]) || record.phone || '';
+  // Send `viewAs` so the agent's get_user_context can disambiguate multi-role
+  // contacts. (Conor Daly is admin+tenant — picking "Admin: Conor" should
+  // route to admin mode even though his cached role might be 'tenant'.)
   window.__demoPersona = {
     phone,
     email: record.email || '',
     name: record.name || record.companyName || '',
+    viewAs: type,
     __personaType: type,
   };
   return window.__demoPersona;
@@ -946,7 +963,12 @@ const SCENARIOS = {
 };
 
 function pickScenarioPersona(personaType) {
-  if (personaType === 'admin') return 'admin:manager';
+  if (personaType === 'admin') {
+    // Prefer an admin-only contact over a multi-role one (cleaner demo).
+    const adminOnly = adminsCache.find(a => Array.isArray(a.roles) && a.roles.length === 1 && a.roles[0] === 'admin');
+    const pick = adminOnly || adminsCache[0];
+    return pick ? `admin:${pick.id}` : '';
+  }
   if (personaType === 'tenant') {
     const laura = tenantsCache.find(t => /laura/i.test(t.name || ''));
     const pick = laura || tenantsCache[0];
@@ -970,6 +992,7 @@ function bindScenarioButtons() {
       // Ensure caches loaded so we can pick a tenant/vendor
       if (!tenantsCache.length) await loadTenants();
       if (!vendorsCache.length) await loadVendors();
+      if (!adminsCache.length) await loadAdmins();
       const personaVal = pickScenarioPersona(s.personaType);
       const sel = document.getElementById('persona-select');
       if (sel && personaVal) {
@@ -1094,6 +1117,18 @@ async function deleteTenant(id, name) {
   if (!confirm(`Delete tenant "${name}"?`)) return;
   try { await api('/tenants', 'DELETE', { id }); toast('Deleted'); loadTenants(); }
   catch (e) { toast(e.message, 'err'); }
+}
+
+async function loadAdmins() {
+  try {
+    const r = await api('/admins', 'GET');
+    const list = r.admins || [];
+    adminsCache = list;
+    populatePersonaSelect();
+  } catch (e) {
+    // Non-fatal — admin loader is new, log but don't toast
+    console.warn('loadAdmins failed:', e.message);
+  }
 }
 
 async function loadVendors() {
@@ -1228,7 +1263,7 @@ document.getElementById('btn-edit-base').addEventListener('click', () => {
   if (v !== null) { setBase(v.trim()); refreshAll(); }
 });
 
-function refreshAll() { refreshStats(); loadProperties(); loadTenants(); loadVendors(); loadTickets(); }
+function refreshAll() { refreshStats(); loadProperties(); loadTenants(); loadVendors(); loadAdmins(); loadTickets(); }
 
 window.deleteProperty = deleteProperty;
 window.deleteTenant = deleteTenant;
@@ -1240,6 +1275,7 @@ loadProperties();
 // Pre-load so persona pill is populated before the user visits Tenants/Vendors tabs.
 loadTenants();
 loadVendors();
+loadAdmins();
 </script>
 </body>
 </html>

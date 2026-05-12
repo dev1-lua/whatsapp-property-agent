@@ -7,6 +7,7 @@ import vendorSkill from './skills/vendor.skill.js';
 import propertiesWebhook from './webhooks/admin/properties.webhook.js';
 import tenantsWebhook from './webhooks/admin/tenants.webhook.js';
 import vendorsWebhook from './webhooks/admin/vendors.webhook.js';
+import adminsWebhook from './webhooks/admin/admins.webhook.js';
 import ticketsAdminWebhook from './webhooks/admin/tickets.webhook.js';
 import seedDataWebhook from './webhooks/admin/seed-data.webhook.js';
 import clearDataWebhook from './webhooks/admin/clear-data.webhook.js';
@@ -171,6 +172,7 @@ const agent = new LuaAgent({
     propertiesWebhook,
     tenantsWebhook,
     vendorsWebhook,
+    adminsWebhook,
     ticketsAdminWebhook,
     seedDataWebhook,
     clearDataWebhook,
