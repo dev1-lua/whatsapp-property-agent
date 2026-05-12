@@ -1,0 +1,120 @@
+{
+  "_comment": "Seed payload for the demo. POST this to the seed-data webhook with method=POST. The webhook deduplicates by email/phone/propertyCode, so re-running is safe.",
+  "_usage": "curl -X POST $WEBHOOK_BASE/seed-data -H 'Content-Type: application/json' -d @seed.example.json",
+
+  "properties": [
+    {
+      "propertyCode": "TEMPLE-04",
+      "name": "No.4 Temple Place",
+      "address": "4 Temple Place",
+      "city": "Dublin",
+      "country": "IE",
+      "postalCode": "D02 P860",
+      "type": "RES",
+      "units": 12,
+      "notes": "Edwardian townhouse, 12 residential units across 4 floors"
+    },
+    {
+      "propertyCode": "WESTGATE-07",
+      "name": "Westgate Court",
+      "address": "7 Westgate Avenue",
+      "city": "Dublin",
+      "country": "IE",
+      "postalCode": "D04 X3K2",
+      "type": "RES",
+      "units": 24,
+      "notes": "Modern apartment block, 24 units, lift access, secure entry"
+    },
+    {
+      "propertyCode": "QUAY-12",
+      "name": "Custom House Quay 12",
+      "address": "12 Custom House Quay",
+      "city": "Dublin",
+      "country": "IE",
+      "postalCode": "D01 V4T5",
+      "type": "COM",
+      "units": 6,
+      "notes": "Commercial office, 6 suites, ground floor reception"
+    }
+  ],
+
+  "tenants": [
+    {
+      "name": "Laura Murphy",
+      "phones": ["353861000001"],
+      "email": "laura.murphy@demo.test",
+      "propertyCode": "TEMPLE-04",
+      "unit": "3B",
+      "_note": "Primary demo tenant. Phone is the persona-pill target for 'Tenant: Laura'"
+    },
+    {
+      "name": "James O'Brien",
+      "phones": ["353861000002"],
+      "email": "james.obrien@demo.test",
+      "propertyCode": "WESTGATE-07",
+      "unit": "7"
+    },
+    {
+      "name": "Aoife Walsh",
+      "phones": ["353861000003"],
+      "email": "aoife.walsh@demo.test",
+      "propertyCode": "TEMPLE-04",
+      "unit": "1A"
+    },
+    {
+      "name": "Karim Hassan",
+      "phones": ["353861000004"],
+      "email": "karim.hassan@demo.test",
+      "propertyCode": "QUAY-12",
+      "unit": "Suite 4"
+    }
+  ],
+
+  "vendors": [
+    {
+      "name": "Dublin Plumbing Co.",
+      "companyName": "Dublin Plumbing Co.",
+      "contactName": "Sean Kelly",
+      "phones": ["353112000001"],
+      "email": "ops@dublinplumbing.demo",
+      "specialties": ["plumbing", "heating"],
+      "hourlyRate": 65,
+      "rating": 4.7,
+      "jobsCompleted": 142,
+      "_note": "Primary demo vendor for the kitchen-sink scenario"
+    },
+    {
+      "name": "ElecPro Ireland",
+      "companyName": "ElecPro Ireland",
+      "contactName": "Maria Doyle",
+      "phones": ["353112000002"],
+      "email": "dispatch@elecpro.demo",
+      "specialties": ["electrical"],
+      "hourlyRate": 75,
+      "rating": 4.8,
+      "jobsCompleted": 89
+    },
+    {
+      "name": "CoolAir HVAC Services",
+      "companyName": "CoolAir HVAC Services",
+      "contactName": "Tom Brennan",
+      "phones": ["353112000003"],
+      "email": "service@coolair.demo",
+      "specialties": ["hvac", "appliance"],
+      "hourlyRate": 70,
+      "rating": 4.5,
+      "jobsCompleted": 67
+    },
+    {
+      "name": "StructureFix Building Services",
+      "companyName": "StructureFix Building Services",
+      "contactName": "Padraig Fitzgerald",
+      "phones": ["353112000004"],
+      "email": "info@structurefix.demo",
+      "specialties": ["structural", "appliance", "other"],
+      "hourlyRate": 85,
+      "rating": 4.6,
+      "jobsCompleted": 51
+    }
+  ]
+}

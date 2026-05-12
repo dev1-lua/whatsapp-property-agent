@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Property Guy — Demo Admin</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-2: #171b24;
+    --border: #232938;
+    --text: #e6e9f0;
+    --muted: #8a94a6;
+    --accent: #5b8cff;
+    --accent-2: #7cf5c4;
+    --danger: #ff6b6b;
+    --warn: #ffc857;
+    --ok: #7cf5c4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--panel); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .agent-id { color: var(--muted); font-family: ui-monospace,Menlo,monospace; font-size: 12px; }
+  nav { display: flex; gap: 4px; padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  nav button { background: transparent; border: 0; color: var(--muted); padding: 12px 16px; cursor: pointer; font: inherit; border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav button:hover:not(.active) { color: var(--text); }
+  main { padding: 20px 24px; max-width: 1200px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
+  .panel-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .panel-head .count { color: var(--muted); font-size: 12px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 60px; resize: vertical; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.4px; }
+  button.btn { background: var(--accent); color: #07090d; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+  button.btn:hover { filter: brightness(1.1); }
+  button.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button.btn.danger { background: var(--danger); color: #1a0405; }
+  button.btn.tiny { padding: 4px 10px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:hover td { background: var(--panel-2); }
+  .actions-cell { display: flex; gap: 4px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+  .pill.urgent { background: rgba(255,107,107,0.15); color: var(--danger); border-color: rgba(255,107,107,0.3); }
+  .pill.high { background: rgba(255,200,87,0.15); color: var(--warn); border-color: rgba(255,200,87,0.3); }
+  .pill.ok { background: rgba(124,245,196,0.15); color: var(--ok); border-color: rgba(124,245,196,0.3); }
+  .toast-wrap { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
+  .toast { background: var(--panel-2); border: 1px solid var(--border); padding: 10px 14px; border-radius: 6px; min-width: 240px; animation: slide-in 0.18s ease; }
+  .toast.ok { border-left: 3px solid var(--ok); }
+  .toast.err { border-left: 3px solid var(--danger); }
+  @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat .v { font-size: 24px; font-weight: 600; }
+  .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+  code { font-family: ui-monospace,Menlo,monospace; font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 3px; }
+  .config-bar { padding: 8px 24px; background: var(--panel-2); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; font-size: 12px; }
+  .config-bar code { font-size: 11px; }
+
+  /* ─── Engine dock — live API stream ─────────────────────────────────── */
+  .engine-dock {
+    position: fixed; bottom: 16px; right: 16px; z-index: 9999;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  }
+  .engine-toggle {
+    background: rgba(18, 21, 28, 0.72); backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.08); color: var(--text);
+    padding: 8px 14px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 8px;
+    cursor: pointer; font: inherit; font-size: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    transition: transform 0.12s ease;
+  }
+  .engine-toggle:hover { transform: translateY(-1px); }
+  .engine-toggle .label { font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; font-size: 10px; }
+  .engine-toggle .stat { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .engine-led {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); box-shadow: 0 0 0 0 transparent;
+    transition: background 0.18s, box-shadow 0.18s;
+  }
+  .engine-led.idle { background: var(--ok); box-shadow: 0 0 6px rgba(124,245,196,0.55); }
+  .engine-led.active { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: enginePulse 0.9s ease-in-out infinite; }
+  .engine-led.fail { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  @keyframes enginePulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  .engine-panel {
+    width: 380px; max-width: calc(100vw - 32px); max-height: 56vh;
+    background: rgba(15, 18, 25, 0.78);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+    display: flex; flex-direction: column;
+    transform-origin: bottom right;
+    animation: engineIn 0.18s ease-out;
+  }
+  @keyframes engineIn { from { opacity:0; transform: translateY(8px) scale(0.98); } to { opacity:1; transform: none; } }
+  .engine-dock.collapsed .engine-panel { display: none; }
+
+  .engine-head {
+    padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.6px; font-size: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .engine-head .title { display: inline-flex; align-items: center; gap: 6px; }
+  .engine-head .clear-btn {
+    background: transparent; border: 0; color: var(--muted);
+    cursor: pointer; font: inherit; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .engine-head .clear-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+  .engine-log { flex: 1; overflow-y: auto; padding: 4px 0; min-height: 60px; }
+  .engine-log:empty::after {
+    content: 'No calls yet · interact with the admin to see traffic flow.';
+    display: block; padding: 28px 18px;
+    color: var(--muted); font-size: 11px; text-align: center; line-height: 1.5;
+  }
+  .engine-log::-webkit-scrollbar { width: 6px; }
+  .engine-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+  .engine-row {
+    display: grid; grid-template-columns: 8px 56px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 7px 14px; cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    transition: background 0.1s;
+  }
+  .engine-row:hover { background: rgba(255,255,255,0.025); }
+  .engine-row.expanded { background: rgba(255,255,255,0.04); }
+  .engine-row .led {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
+  }
+  .engine-row.pending .led { background: var(--warn); animation: enginePulse 0.8s ease-in-out infinite; }
+  .engine-row.ok .led { background: var(--ok); box-shadow: 0 0 4px rgba(124,245,196,0.55); }
+  .engine-row.err .led { background: var(--danger); box-shadow: 0 0 4px rgba(255,107,107,0.55); }
+  .engine-row .method { font-weight: 600; font-size: 10px; color: var(--muted); letter-spacing: 0.4px; }
+  .engine-row.ok .method { color: var(--accent-2); }
+  .engine-row.err .method { color: var(--danger); }
+  .engine-row .path { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .engine-row .meta { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .engine-row .meta .status-code { color: var(--text); margin-right: 4px; }
+  .engine-row.err .meta .status-code { color: var(--danger); }
+
+  .engine-detail {
+    grid-column: 1 / -1; margin: 6px 0 4px;
+    background: rgba(0,0,0,0.32); border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 6px; padding: 8px 10px;
+    color: var(--muted); font-size: 11px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-all;
+    max-height: 200px; overflow: auto;
+  }
+  .engine-detail .lbl { color: var(--accent); text-transform: uppercase; font-size: 9px; letter-spacing: 0.6px; display: block; margin: 4px 0 2px; }
+  .engine-detail .lbl:first-child { margin-top: 0; }
+  .engine-row:not(.expanded) .engine-detail { display: none; }
+
+  /* ─── Persona pill (header) ─────────────────────────────────────────── */
+  .persona-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 10px 4px 12px;
+  }
+  .persona-pill .persona-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); font-weight: 600;
+  }
+  .persona-pill select {
+    background: transparent; border: 0; color: var(--text);
+    padding: 4px 4px; font: inherit; font-size: 12px;
+    cursor: pointer; min-width: 180px;
+  }
+  .persona-pill select:focus { outline: none; }
+  .persona-pill select option, .persona-pill select optgroup {
+    background: var(--panel); color: var(--text);
+  }
+
+  /* ─── Scenario buttons (Chat tab) ───────────────────────────────────── */
+  .scenarios {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+  }
+  .scenarios button {
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 14px; border-radius: 999px;
+    cursor: pointer; font: inherit; font-size: 12px;
+    transition: border-color 0.12s, background 0.12s, transform 0.08s;
+  }
+  .scenarios button:hover { border-color: var(--accent); background: rgba(91,140,255,0.08); }
+  .scenarios button:active { transform: translateY(1px); }
+
+  /* ─── Chat 2-col layout + tools timeline ────────────────────────────── */
+  .chat-layout {
+    display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 14px; align-items: stretch;
+  }
+  .chat-layout > .chat-col, .chat-layout > .tools-col {
+    min-width: 0; display: flex; flex-direction: column;
+  }
+  @media (max-width: 900px) {
+    .chat-layout { grid-template-columns: 1fr; }
+  }
+  .tools-panel {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; height: 560px; display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .tools-head {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .tools-head .title {
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px;
+    font-size: 10px; font-weight: 600;
+  }
+  .tools-head .count { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .tools-log {
+    flex: 1; overflow-y: auto; padding: 8px 0;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+  }
+  .tools-log::-webkit-scrollbar { width: 6px; }
+  .tools-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+  .tools-log:empty::after {
+    content: 'Waiting for the agent to invoke a tool…';
+    display: block; padding: 28px 18px; color: var(--muted);
+    font-size: 11px; text-align: center; line-height: 1.5;
+    font-family: inherit;
+  }
+  .tool-entry {
+    padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    animation: slide-in 0.18s ease;
+  }
+  .tool-entry .tool-name { color: var(--accent-2); font-weight: 600; }
+  .tool-entry .tool-arrow { color: var(--muted); margin-right: 4px; }
+  .tool-entry .tool-result { color: var(--muted); display: block; padding-left: 18px; margin-top: 2px; word-break: break-word; }
+  .tool-entry .tool-result .ok { color: var(--ok); }
+  .tool-entry .tool-result .err { color: var(--danger); }
+  .tool-entry .tool-meta { color: var(--muted); font-size: 10px; margin-left: 6px; }
+  .tool-entry.err .tool-name { color: var(--danger); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏠 Property Guy — Demo Admin</h1>
+  <span class="agent-id" id="agent-display"></span>
+  <div class="persona-pill" id="persona-pill">
+    <span class="persona-label">Demo as</span>
+    <select id="persona-select" title="Pick a persona to set the chat widget's userContext">
+      <option value="">— anonymous —</option>
+      <optgroup label="Admin" id="persona-admin-group">
+        <option value="admin:manager">Property Manager</option>
+      </optgroup>
+      <optgroup label="Tenants" id="persona-tenants-group"></optgroup>
+      <optgroup label="Vendors" id="persona-vendors-group"></optgroup>
+    </select>
+  </div>
+  <span style="margin-left:auto; display:flex; gap:8px;">
+    <button class="btn secondary tiny" id="btn-seed">Seed demo data</button>
+    <button class="btn secondary tiny" id="btn-refresh">Refresh all</button>
+    <button class="btn danger tiny" id="btn-clear">Clear data…</button>
+  </span>
+</header>
+
+<div class="config-bar">
+  <span>Webhook base:</span>
+  <code id="webhook-base-display"></code>
+  <button class="btn secondary tiny" id="btn-edit-base">Edit</button>
+</div>
+
+<nav>
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="properties">Properties</button>
+  <button class="tab-btn" data-tab="tenants">Tenants</button>
+  <button class="tab-btn" data-tab="vendors">Vendors</button>
+  <button class="tab-btn" data-tab="tickets">Open Tickets</button>
+  <button class="tab-btn" data-tab="chat">Chat</button>
+</nav>
+
+<main>
+
+<!-- ─────────── OVERVIEW ─────────── -->
+<section class="tab-pane active" data-pane="overview">
+  <div class="stats" id="stats"></div>
+  <div class="panel">
+    <div class="panel-head"><h2>How to demo</h2></div>
+    <ol style="margin:0; padding-left:18px; line-height:1.7;">
+      <li>Click <b>Seed demo data</b> to load 3 properties, 4 tenants, 4 vendors.</li>
+      <li>Add yourself as a tenant in the <b>Tenants</b> tab so the agent recognizes you.</li>
+      <li>Run <code>npx lua chat -e production</code> in your terminal — the agent will identify you and walk through a maintenance request.</li>
+      <li>Watch new tickets appear in the <b>Open Tickets</b> tab.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ─────────── PROPERTIES ─────────── -->
+<section class="tab-pane" data-pane="properties">
+  <div class="panel">
+    <div class="panel-head"><h2>Add property</h2></div>
+    <div class="row">
+      <div><label>Name</label><input id="p-name" placeholder="No.4 Temple Place" /></div>
+      <div><label>Address</label><input id="p-address" placeholder="4 Temple Place" /></div>
+      <div><label>City</label><input id="p-city" placeholder="Dublin" /></div>
+      <div><label>Type</label>
+        <select id="p-type"><option value="RES">Residential</option><option value="COM">Commercial</option></select>
+      </div>
+      <div><label>Units</label><input id="p-units" type="number" placeholder="12" /></div>
+    </div>
+    <button class="btn" id="p-create">Add property</button>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Properties</h2><span class="count" id="p-count"></span></div>
+    <div id="p-table"></div>
+  </div>
+</section>
+
+<!-- ─────────── TENANTS ─────────── -->
+<section class="tab-pane" data-pane="tenants">
+  <div class="panel">
+    <div class="panel-head"><h2>Add tenant</h2></div>
+    <div class="row">
+      <div><label>Name</label><input id="t-name" placeholder="Jane Doe" /></div>
+      <div><label>Email</label><input id="t-email" placeholder="jane@example.com" /></div>
+      <div><label>Phone</label><input id="t-phone" placeholder="+353861234567" /></div>
+      <div><label>Property</label><select id="t-prop"></select></div>
+      <div><label>Unit</label><input id="t-unit" placeholder="3B" /></div>
+    </div>
+    <button class="btn" id="t-create">Add tenant</button>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Tenants</h2><span class="count" id="t-count"></span></div>
+    <div id="t-table"></div>
+  </div>
+</section>
+
+<!-- ─────────── VENDORS ─────────── -->
+<section class="tab-pane" data-pane="vendors">
+  <div class="panel">
+    <div class="panel-head"><h2>Add vendor</h2></div>
+    <div class="row">
+      <div><label>Vendor name</label><input id="v-name" placeholder="Dublin Plumbing Co." /></div>
+      <div><label>Email</label><input id="v-email" placeholder="ops@example.com" /></div>
+      <div><label>Phone</label><input id="v-phone" placeholder="+353112233445" /></div>
+      <div><label>Specialties (comma-separated)</label><input id="v-spec" placeholder="plumbing, heating" /></div>
+      <div><label>Hourly rate</label><input id="v-rate" type="number" placeholder="65" /></div>
+    </div>
+    <button class="btn" id="v-create">Add vendor</button>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Vendors</h2><span class="count" id="v-count"></span></div>
+    <div id="v-table"></div>
+  </div>
+</section>
+
+<!-- ─────────── TICKETS ─────────── -->
+<section class="tab-pane" data-pane="tickets">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Open tickets</h2>
+      <span style="display:flex; gap:6px;">
+        <button class="btn secondary tiny" id="tk-refresh">Refresh</button>
+        <button class="btn danger tiny" id="tk-clear">Clear all tickets…</button>
+      </span>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-bottom:10px;">
+      Tickets are not seeded — they appear here as soon as a tenant files one via the Chat tab (or via the agent's chat widget anywhere).
+    </div>
+    <div id="tk-table"></div>
+  </div>
+</section>
+
+<!-- ─────────── CHAT (tenant + admin) ─────────── -->
+<section class="tab-pane" data-pane="chat">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Chat with the agent</h2>
+      <span style="display:flex; gap:6px; align-items:center;">
+        <button class="btn secondary tiny" id="btn-chat-refresh" title="Start a fresh chat thread">↻ New thread</button>
+      </span>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.5;">
+      The agent has <b>two modes</b>:<br>
+      &nbsp;• <b>Tenant mode</b> — identify yourself with name + phone (must match a seeded tenant) and file/check maintenance tickets, e.g. <code>"Hi I'm Laura Murphy at +353861234567, my kitchen sink is leaking"</code>.<br>
+      &nbsp;• <b>Admin mode</b> — portfolio-wide read-only Q&A, e.g. <code>"Show me open tickets in Dublin"</code> or <code>"Which vendors handle plumbing?"</code>.<br>
+      <b>Edited data via the admin UI?</b> Click <b>New thread</b> to start a fresh chat — the agent re-reads live data on every tool call, but a new thread guarantees no stale conversational context.
+    </div>
+
+    <div class="scenarios" id="scenarios">
+      <button data-scenario="leak">Kitchen sink leak (tenant)</button>
+      <button data-scenario="emergency">Gas smell (emergency)</button>
+      <button data-scenario="vendor-claim">Vendor: what jobs?</button>
+      <button data-scenario="admin-q">Admin: open tickets in Dublin?</button>
+    </div>
+
+    <div class="chat-layout">
+      <div class="chat-col">
+        <div id="luapop-host" style="width:100%; height:560px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; overflow:hidden;"></div>
+        <div style="margin-top:10px; font-size:11px; color:var(--muted);" id="luapop-status">loading widget…</div>
+      </div>
+      <div class="tools-col">
+        <div class="tools-panel">
+          <div class="tools-head">
+            <span class="title">Tools timeline · live agent calls</span>
+            <span class="count"><span id="tools-count">0</span> events</span>
+          </div>
+          <div class="tools-log" id="tools-log"></div>
+        </div>
+        <div style="margin-top:10px; font-size:11px; color:var(--muted);">
+          Each entry is a tool the agent invoked during this thread. Cleared on <b>New thread</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- ─── LuaPop chat widget loader ─────────────────────────────────────── -->
+<script src="https://lua-ai-global.github.io/lua-pop/lua-pop.umd.js" async></script>
+
+<!-- ─── Engine dock — live API stream ─────────────────────────────────── -->
+<div class="engine-dock" id="engine-dock">
+  <div class="engine-panel">
+    <div class="engine-head">
+      <span class="title"><span class="engine-led idle" id="engine-led-head"></span> Engine · live API stream</span>
+      <button class="clear-btn" id="engine-clear" title="Clear log">Clear</button>
+    </div>
+    <div class="engine-log" id="engine-log"></div>
+  </div>
+  <button class="engine-toggle" id="engine-toggle" title="Toggle engine view">
+    <span class="engine-led idle" id="engine-led"></span>
+    <span class="label">Engine</span>
+    <span class="stat" id="engine-stat">0</span>
+  </button>
+</div>
+
+<script>
+/* ─── Engine dock controller — wraps every api() fetch ─────────────── */
+const engineDock = (function () {
+  const MAX = 80;
+  const calls = [];
+  const expanded = new Set();
+  let counter = 0;
+  let root, logEl, statEl, ledMain, ledHead;
+  let bound = false;
+
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function ensure() {
+    if (bound) return;
+    root = document.getElementById('engine-dock');
+    logEl = document.getElementById('engine-log');
+    statEl = document.getElementById('engine-stat');
+    ledMain = document.getElementById('engine-led');
+    ledHead = document.getElementById('engine-led-head');
+    if (!root) return; // DOM not ready yet — we'll bind on first call
+    document.getElementById('engine-toggle').addEventListener('click', () => {
+      root.classList.toggle('collapsed');
+    });
+    document.getElementById('engine-clear').addEventListener('click', () => {
+      calls.length = 0; expanded.clear(); render();
+    });
+    logEl.addEventListener('click', (e) => {
+      const row = e.target.closest('.engine-row');
+      if (!row) return;
+      const id = Number(row.dataset.id);
+      if (expanded.has(id)) { expanded.delete(id); row.classList.remove('expanded'); }
+      else { expanded.add(id); row.classList.add('expanded'); }
+    });
+    bound = true;
+  }
+
+  function setLed(state) {
+    [ledMain, ledHead].forEach(el => {
+      if (!el) return;
+      el.classList.remove('idle', 'active', 'fail');
+      el.classList.add(state);
+    });
+  }
+
+  function refreshLed() {
+    if (!ledMain) return;
+    if (calls.some(c => c.status === 'pending')) setLed('active');
+    else if (calls.length && calls[0].status === 'err') setLed('fail');
+    else setLed('idle');
+  }
+
+  function fmt(v) {
+    if (v == null) return '(none)';
+    if (typeof v === 'string') {
+      try { return JSON.stringify(JSON.parse(v), null, 2); } catch { return v; }
+    }
+    try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+  }
+
+  function fmtHeaders(h) {
+    if (!h) return '(none)';
+    const lines = Object.keys(h).sort().map(k => `${k}: ${h[k]}`);
+    return lines.length ? lines.join('\n') : '(none)';
+  }
+
+  function render() {
+    ensure();
+    if (!logEl) return;
+    statEl.textContent = String(calls.length);
+    logEl.innerHTML = calls.map(c => {
+      const cls = c.status + (expanded.has(c.id) ? ' expanded' : '');
+      const meta = c.status === 'pending'
+        ? '<span>…</span>'
+        : `<span class="status-code">${c.httpStatus || (c.ok ? '200' : 'ERR')}${c.statusText ? ' ' + c.statusText : ''}</span><span>${c.duration}ms</span>`;
+      return `
+        <div class="engine-row ${cls}" data-id="${c.id}">
+          <span class="led"></span>
+          <span class="method">${escHtml(c.method)}</span>
+          <span class="path">${escHtml(c.path)}</span>
+          <span class="meta">${meta}</span>
+          <div class="engine-detail">
+            <span class="lbl">⇢ Request URL</span>${escHtml(c.url || c.path)}
+            <span class="lbl">⇢ Request method (HTTP)</span>${escHtml(c.httpMethod || c.method)}
+            <span class="lbl">⇢ Request headers</span>${escHtml(fmtHeaders(c.requestHeaders))}
+            <span class="lbl">⇢ Request body</span>${escHtml(fmt(c.requestBody))}
+            <span class="lbl">⇠ Response status</span>${escHtml((c.httpStatus || 'ERR') + (c.statusText ? ' ' + c.statusText : '') + '  ·  ' + (c.duration != null ? c.duration + 'ms' : '—'))}
+            <span class="lbl">⇠ Response headers</span>${escHtml(fmtHeaders(c.responseHeaders))}
+            <span class="lbl">⇠ Response body</span>${escHtml(fmt(c.response))}
+          </div>
+        </div>`;
+    }).join('');
+    refreshLed();
+  }
+
+  function start(info) {
+    ensure();
+    const id = ++counter;
+    calls.unshift({
+      id,
+      method: info.method,
+      httpMethod: info.httpMethod,
+      url: info.url,
+      path: info.path,
+      requestHeaders: info.requestHeaders,
+      requestBody: info.requestBody,
+      status: 'pending',
+      startTime: performance.now(),
+    });
+    if (calls.length > MAX) calls.length = MAX;
+    render();
+    return id;
+  }
+
+  function end(id, info) {
+    const c = calls.find(x => x.id === id);
+    if (!c) return;
+    c.status = info.ok ? 'ok' : 'err';
+    c.ok = info.ok;
+    c.httpStatus = info.httpStatus;
+    c.statusText = info.statusText || '';
+    c.responseHeaders = info.responseHeaders;
+    c.response = info.response;
+    c.duration = Math.max(0, Math.round(performance.now() - c.startTime));
+    render();
+  }
+
+  return { start, end };
+})();
+
+/* ─── Global fetch patch — surface every heylua.ai call in the dock ─── */
+(function patchFetch() {
+  if (window.__enginePatched) return;
+  window.__enginePatched = true;
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    // Only instrument heylua.ai traffic so the dock stays focused.
+    if (!/heylua\.ai/.test(url)) return _fetch(input, init);
+
+    let httpMethod = (init && init.method) || (input && input.method) || 'GET';
+    httpMethod = String(httpMethod).toUpperCase();
+
+    let requestBody = init && init.body;
+    let parsedBody = requestBody;
+    try {
+      if (typeof requestBody === 'string') parsedBody = JSON.parse(requestBody);
+    } catch { /* leave as string */ }
+
+    // If the body carries a logical method (admin wrapper pattern), prefer it for display.
+    const logicalMethod = (parsedBody && typeof parsedBody === 'object' && parsedBody.method) || httpMethod;
+
+    const requestHeaders = {};
+    const h = (init && init.headers) || {};
+    if (h && typeof h.forEach === 'function') h.forEach((v, k) => { requestHeaders[k] = v; });
+    else if (Array.isArray(h)) h.forEach(([k, v]) => { requestHeaders[k] = v; });
+    else Object.keys(h).forEach(k => { requestHeaders[k] = h[k]; });
+
+    let path = url;
+    try { const u = new URL(url); path = u.pathname + (u.search || ''); } catch {}
+
+    const callId = engineDock.start({
+      method: String(logicalMethod).toUpperCase(),
+      httpMethod,
+      url,
+      path,
+      requestHeaders,
+      requestBody: parsedBody,
+    });
+
+    return _fetch(input, init).then(async (r) => {
+      const responseHeaders = {};
+      r.headers.forEach((v, k) => { responseHeaders[k] = v; });
+      const contentType = r.headers.get('content-type') || '';
+      let bodyOut;
+      if (contentType.includes('event-stream')) {
+        bodyOut = '(streaming SSE response · body not captured)';
+      } else {
+        try {
+          const text = await r.clone().text();
+          try { bodyOut = text ? JSON.parse(text) : ''; } catch { bodyOut = text; }
+        } catch (e) {
+          bodyOut = '(could not read body: ' + e.message + ')';
+        }
+      }
+      engineDock.end(callId, {
+        ok: r.ok,
+        httpStatus: r.status,
+        statusText: r.statusText,
+        responseHeaders,
+        response: bodyOut,
+      });
+      return r;
+    }).catch((err) => {
+      engineDock.end(callId, {
+        ok: false,
+        httpStatus: 0,
+        statusText: 'Network error',
+        responseHeaders: {},
+        response: { error: err.message },
+      });
+      throw err;
+    });
+  };
+})();
+
+const DEFAULT_AGENT_ID = 'baseAgent_agent_1778570087307_uu37q4v0m';
+const STORAGE_KEY = 'property-guy-demo.webhookBase';
+
+function getBase() {
+  return localStorage.getItem(STORAGE_KEY) || `https://webhook.heylua.ai/${DEFAULT_AGENT_ID}`;
+}
+function setBase(v) {
+  if (!v) localStorage.removeItem(STORAGE_KEY);
+  else localStorage.setItem(STORAGE_KEY, v.replace(/\/+$/, ''));
+  renderBase();
+}
+function renderBase() {
+  const b = getBase();
+  document.getElementById('webhook-base-display').textContent = b;
+  document.getElementById('agent-display').textContent = 'agent: ' + b.split('/').pop();
+}
+
+async function api(path, method = 'GET', body = null) {
+  const url = getBase() + path;
+  const payload = { method, ...(body || {}) };
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  };
+  // The global fetch patch (engine dock) records the call lifecycle automatically.
+  const r = await fetch(url, init);
+  const text = await r.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  if (!r.ok || (data && data.success === false)) {
+    const msg = (data && (data.error || data.message)) || (r.status + ' ' + r.statusText);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function toast(msg, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+    if (tab === 'overview') refreshStats();
+    if (tab === 'properties') loadProperties();
+    if (tab === 'tenants') loadTenants();
+    if (tab === 'vendors') loadVendors();
+    if (tab === 'tickets') loadTickets();
+    if (tab === 'chat') initLuaPop();
+  });
+});
+
+/* ─── LuaPop chat widget + refresh-context button ──────────────────── */
+let luaPopReady = false;
+function setChatStatus(msg) {
+  const el = document.getElementById('luapop-status');
+  if (el) el.textContent = msg;
+}
+function initLuaPop(opts = {}) {
+  const force = opts.force === true;
+  if (luaPopReady && !force) return;
+  setChatStatus(force ? 're-initializing widget…' : 'loading widget…');
+  const tryInit = (attempts = 0) => {
+    if (window.LuaPop && typeof window.LuaPop.init === 'function') {
+      try {
+        const agentId = (getBase().split('/').pop()) || DEFAULT_AGENT_ID;
+        // Best-effort teardown for a clean thread reset
+        if (force) {
+          const host = document.getElementById('luapop-host');
+          if (host) host.innerHTML = '';
+          ['destroy', 'reset', 'unmount', 'close'].forEach(m => {
+            try { if (typeof window.LuaPop[m] === 'function') window.LuaPop[m](); } catch {}
+          });
+        }
+        const initOpts = {
+          agentId,
+          environment: 'production',
+          displayMode: 'embedded',
+          embeddedDisplayConfig: { targetContainerId: 'luapop-host' },
+          chatTitle: 'Property Maintenance Agent',
+          welcomeMessage: 'Hi! Tenants — identify yourself with name + phone, then tell me the issue and I\'ll file a ticket. Admins — ask portfolio-wide questions like "show me open tickets" or "vendors who handle plumbing".',
+          chatInputPlaceholder: 'e.g. "Hi I\'m Laura at +353861234567, my sink is leaking"',
+        };
+        // v2: persona override (read each init so re-init picks up new persona)
+        if (window.__demoPersona) initOpts.userContext = window.__demoPersona;
+        // v2: tools timeline hook (LuaPop may or may not call this — graceful fallback)
+        initOpts.onToolInvoked = function (event) {
+          try { toolTimeline.append(event || {}); } catch (e) { /* swallow */ }
+        };
+        window.LuaPop.init(initOpts);
+        luaPopReady = true;
+        const personaNote = window.__demoPersona ? ' · as ' + (window.__demoPersona.name || window.__demoPersona.__personaType) : '';
+        setChatStatus('connected · agent ' + agentId + personaNote + (force ? ' · fresh thread' : ''));
+      } catch (e) {
+        setChatStatus('init error: ' + e.message);
+      }
+      return;
+    }
+    if (attempts > 40) { setChatStatus('widget script failed to load (check network / CSP)'); return; }
+    setTimeout(() => tryInit(attempts + 1), 150);
+  };
+  tryInit();
+}
+
+document.getElementById('btn-chat-refresh').addEventListener('click', () => {
+  // Destroy + re-init = fresh threadId so no stale conversational context bleeds in.
+  // The agent reads live data on every query_data call regardless, but this guarantees
+  // a clean slate.
+  toolTimeline.clear();
+  initLuaPop({ force: true });
+  toast('Fresh chat thread started.', 'ok');
+});
+
+/* ─── Persona pill change handler ──────────────────────────────────── */
+document.getElementById('persona-select').addEventListener('change', async (e) => {
+  const val = e.target.value;
+  // Make sure we have the cache rows for the chosen persona type
+  if (val.startsWith('tenant:') && !tenantsCache.length) await loadTenants();
+  if (val.startsWith('vendor:') && !vendorsCache.length) await loadVendors();
+  applyPersona(val);
+  toolTimeline.clear();
+  initLuaPop({ force: true });
+  const label = !val ? 'anonymous'
+    : (window.__demoPersona && window.__demoPersona.name) || val;
+  toast('Persona: ' + label);
+});
+
+bindScenarioButtons();
+
+let propertiesCache = [];
+let tenantsCache = [];
+let vendorsCache = [];
+
+/* ─── Tools timeline controller ─────────────────────────────────────── */
+const toolTimeline = (function () {
+  const MAX = 50;
+  const entries = [];
+  let logEl, countEl;
+
+  function ensure() {
+    if (!logEl) logEl = document.getElementById('tools-log');
+    if (!countEl) countEl = document.getElementById('tools-count');
+  }
+
+  function summarize(result) {
+    if (result == null) return '<span class="ok">done</span>';
+    if (typeof result === 'string') {
+      const s = result.length > 120 ? result.slice(0, 120) + '…' : result;
+      return escapeHtml(s);
+    }
+    if (typeof result === 'object') {
+      // Common shapes: { success, error, ticketId, count, items, ... }
+      if (result.success === false || result.error) {
+        return '<span class="err">' + escapeHtml(result.error || 'failed') + '</span>';
+      }
+      const interesting = ['ticketId','id','count','message','status','name','phone','email','tenantId','vendorId','propertyId'];
+      const found = interesting.filter(k => result[k] != null).slice(0, 2);
+      if (found.length) {
+        return found.map(k => `${escapeHtml(k)}: <span class="ok">${escapeHtml(String(result[k]).slice(0, 60))}</span>`).join(' · ');
+      }
+      if (Array.isArray(result)) return `<span class="ok">${result.length} item(s)</span>`;
+      // Look for first array property
+      for (const k of Object.keys(result)) {
+        if (Array.isArray(result[k])) return `${escapeHtml(k)}: <span class="ok">${result[k].length} item(s)</span>`;
+      }
+      const keys = Object.keys(result).slice(0, 3).join(', ');
+      return keys ? escapeHtml('{ ' + keys + ' }') : '<span class="ok">done</span>';
+    }
+    return escapeHtml(String(result));
+  }
+
+  function render() {
+    ensure();
+    if (!logEl) return;
+    countEl.textContent = String(entries.length);
+    logEl.innerHTML = entries.map(e => {
+      const dur = e.durationMs != null ? `<span class="tool-meta">${e.durationMs}ms</span>` : '';
+      const cls = e.isErr ? ' err' : '';
+      return `<div class="tool-entry${cls}">
+        <span class="tool-arrow">▶</span><span class="tool-name">${escapeHtml(e.tool)}</span>${dur}
+        <span class="tool-result">↳ ${e.resultHtml}</span>
+      </div>`;
+    }).join('');
+    // Newest at the bottom — auto-scroll
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function append(ev) {
+    const tool = ev && (ev.toolName || ev.tool || ev.name) || 'unknown';
+    const result = ev && (ev.result != null ? ev.result : ev.response);
+    const durationMs = ev && (ev.duration != null ? ev.duration : ev.durationMs);
+    const isErr = !!(result && typeof result === 'object' && (result.success === false || result.error));
+    entries.push({
+      tool: String(tool),
+      resultHtml: summarize(result),
+      durationMs: typeof durationMs === 'number' ? Math.round(durationMs) : null,
+      isErr,
+    });
+    if (entries.length > MAX) entries.splice(0, entries.length - MAX);
+    render();
+  }
+
+  function clear() {
+    entries.length = 0;
+    render();
+  }
+
+  return { append, clear, render };
+})();
+
+/* ─── Persona pill — populate from caches + handle change ──────────── */
+function populatePersonaSelect() {
+  const tGroup = document.getElementById('persona-tenants-group');
+  const vGroup = document.getElementById('persona-vendors-group');
+  if (!tGroup || !vGroup) return;
+  const sel = document.getElementById('persona-select');
+  const current = sel ? sel.value : '';
+
+  tGroup.innerHTML = tenantsCache.map(t => {
+    const label = `${t.name || 'Tenant'}${t.propertyName ? ' (' + t.propertyName + (t.unit ? ' ' + t.unit : '') + ')' : ''}`;
+    return `<option value="tenant:${escapeHtml(t.id)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  vGroup.innerHTML = vendorsCache.map(v => {
+    const name = v.companyName || v.name || 'Vendor';
+    return `<option value="vendor:${escapeHtml(v.id)}">${escapeHtml(name)}</option>`;
+  }).join('');
+
+  // Preserve current selection if still valid
+  if (sel && current && Array.from(sel.options).some(o => o.value === current)) {
+    sel.value = current;
+  }
+}
+
+function applyPersona(val) {
+  if (!val) {
+    window.__demoPersona = null;
+    return null;
+  }
+  const idx = val.indexOf(':');
+  const type = idx >= 0 ? val.slice(0, idx) : val;
+  const id = idx >= 0 ? val.slice(idx + 1) : '';
+  if (type === 'admin') {
+    window.__demoPersona = {
+      name: 'Property Manager',
+      email: 'admin@property-guy.demo',
+      phone: '',
+      __personaType: 'admin',
+    };
+    return window.__demoPersona;
+  }
+  const record = (type === 'tenant' ? tenantsCache : vendorsCache).find(x => x.id === id);
+  if (!record) {
+    window.__demoPersona = null;
+    return null;
+  }
+  const phone = (Array.isArray(record.phones) && record.phones[0]) || record.phone || '';
+  window.__demoPersona = {
+    phone,
+    email: record.email || '',
+    name: record.name || record.companyName || '',
+    __personaType: type,
+  };
+  return window.__demoPersona;
+}
+
+/* ─── Scenarios — pre-canned demo flows ────────────────────────────── */
+const SCENARIOS = {
+  leak:          { personaType: 'tenant', message: "Hi, my kitchen sink is leaking, water is everywhere" },
+  emergency:     { personaType: 'tenant', message: "There's a gas smell in my apartment" },
+  'vendor-claim':{ personaType: 'vendor', message: "Hi, what jobs are available?" },
+  'admin-q':     { personaType: 'admin',  message: "Show me all open tickets in Dublin" },
+};
+
+function pickScenarioPersona(personaType) {
+  if (personaType === 'admin') return 'admin:manager';
+  if (personaType === 'tenant') {
+    const laura = tenantsCache.find(t => /laura/i.test(t.name || ''));
+    const pick = laura || tenantsCache[0];
+    return pick ? `tenant:${pick.id}` : '';
+  }
+  if (personaType === 'vendor') {
+    const dub = vendorsCache.find(v => /dublin/i.test((v.companyName || v.name || '')));
+    const pick = dub || vendorsCache[0];
+    return pick ? `vendor:${pick.id}` : '';
+  }
+  return '';
+}
+
+function bindScenarioButtons() {
+  document.querySelectorAll('#scenarios button').forEach(btn => {
+    if (btn.__bound) return;
+    btn.__bound = true;
+    btn.addEventListener('click', async () => {
+      const s = SCENARIOS[btn.dataset.scenario];
+      if (!s) return;
+      // Ensure caches loaded so we can pick a tenant/vendor
+      if (!tenantsCache.length) await loadTenants();
+      if (!vendorsCache.length) await loadVendors();
+      const personaVal = pickScenarioPersona(s.personaType);
+      const sel = document.getElementById('persona-select');
+      if (sel && personaVal) {
+        sel.value = personaVal;
+        sel.dispatchEvent(new Event('change'));
+      }
+      // Give the widget time to re-init before sending the message
+      setTimeout(() => {
+        try {
+          if (window.LuaPop && typeof window.LuaPop.sendMessage === 'function') {
+            window.LuaPop.sendMessage(s.message);
+          } else {
+            toast('Widget does not expose sendMessage — type the message manually.', 'err');
+          }
+        } catch (e) {
+          toast('Scenario send failed: ' + e.message, 'err');
+        }
+      }, 400);
+    });
+  });
+}
+
+async function loadProperties() {
+  try {
+    const r = await api('/properties', 'GET');
+    propertiesCache = r.properties || [];
+    document.getElementById('p-count').textContent = `${propertiesCache.length} total`;
+    document.getElementById('p-table').innerHTML = renderPropertyTable(propertiesCache);
+    const sel = document.getElementById('t-prop');
+    sel.innerHTML = '<option value="">— select —</option>' + propertiesCache.map(p =>
+      `<option value="${p.id}">${escapeHtml(p.name)} (${escapeHtml(p.city||'')})</option>`).join('');
+  } catch (e) { toast('Properties: ' + e.message, 'err'); }
+}
+function renderPropertyTable(list) {
+  if (!list.length) return '<div class="empty">No properties yet. Click Seed demo data above to populate.</div>';
+  return `<table>
+    <thead><tr><th>Name</th><th>Address</th><th>City</th><th>Type</th><th>Units</th><th></th></tr></thead>
+    <tbody>${list.map(p => `
+      <tr>
+        <td><b>${escapeHtml(p.name)}</b></td>
+        <td>${escapeHtml(p.address)}</td>
+        <td>${escapeHtml(p.city)}</td>
+        <td><span class="pill">${escapeHtml(p.type)}</span></td>
+        <td>${p.units || '—'}</td>
+        <td class="actions-cell">
+          <button class="btn danger tiny" onclick="deleteProperty('${p.id}','${escapeHtml(p.name)}')">Delete</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function createProperty() {
+  const data = {
+    name: document.getElementById('p-name').value.trim(),
+    address: document.getElementById('p-address').value.trim(),
+    city: document.getElementById('p-city').value.trim(),
+    type: document.getElementById('p-type').value,
+    units: parseInt(document.getElementById('p-units').value, 10) || 0,
+  };
+  if (!data.name) return toast('Name required', 'err');
+  try {
+    await api('/properties', 'POST', data);
+    toast('Property created');
+    ['p-name','p-address','p-city','p-units'].forEach(id => document.getElementById(id).value = '');
+    loadProperties();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function deleteProperty(id, name) {
+  if (!confirm(`Delete property "${name}"?`)) return;
+  try { await api('/properties', 'DELETE', { id }); toast('Deleted'); loadProperties(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+async function loadTenants() {
+  try {
+    if (!propertiesCache.length) await loadProperties();
+    const r = await api('/tenants', 'GET');
+    const list = r.tenants || [];
+    tenantsCache = list;
+    document.getElementById('t-count').textContent = `${list.length} total`;
+    document.getElementById('t-table').innerHTML = renderTenantTable(list);
+    populatePersonaSelect();
+  } catch (e) { toast('Tenants: ' + e.message, 'err'); }
+}
+function renderTenantTable(list) {
+  if (!list.length) return '<div class="empty">No tenants yet.</div>';
+  return `<table>
+    <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Property</th><th>Unit</th><th></th></tr></thead>
+    <tbody>${list.map(t => `
+      <tr>
+        <td><b>${escapeHtml(t.name)}</b></td>
+        <td>${escapeHtml(t.phone)}</td>
+        <td>${escapeHtml(t.email)}</td>
+        <td>${escapeHtml(t.propertyName||'')}</td>
+        <td>${escapeHtml(t.unit||'')}</td>
+        <td class="actions-cell">
+          <button class="btn danger tiny" onclick="deleteTenant('${t.id}','${escapeHtml(t.name)}')">Delete</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function createTenant() {
+  const propertyId = document.getElementById('t-prop').value;
+  const data = {
+    name: document.getElementById('t-name').value.trim(),
+    email: document.getElementById('t-email').value.trim(),
+    phone: document.getElementById('t-phone').value.trim(),
+    propertyId,
+    unit: document.getElementById('t-unit').value.trim(),
+  };
+  if (!data.name || !propertyId) return toast('Name & property required', 'err');
+  if (!data.phone && !data.email) return toast('Phone or email required', 'err');
+  const prop = propertiesCache.find(p => p.id === propertyId);
+  if (prop) data.propertyName = prop.name;
+  try {
+    await api('/tenants', 'POST', data);
+    toast('Tenant created');
+    ['t-name','t-email','t-phone','t-unit'].forEach(id => document.getElementById(id).value = '');
+    loadTenants();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function deleteTenant(id, name) {
+  if (!confirm(`Delete tenant "${name}"?`)) return;
+  try { await api('/tenants', 'DELETE', { id }); toast('Deleted'); loadTenants(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+async function loadVendors() {
+  try {
+    const r = await api('/vendors', 'GET');
+    const list = r.vendors || [];
+    vendorsCache = list;
+    document.getElementById('v-count').textContent = `${list.length} total`;
+    document.getElementById('v-table').innerHTML = renderVendorTable(list);
+    populatePersonaSelect();
+  } catch (e) { toast('Vendors: ' + e.message, 'err'); }
+}
+function renderVendorTable(list) {
+  if (!list.length) return '<div class="empty">No vendors yet.</div>';
+  return `<table>
+    <thead><tr><th>Company</th><th>Phone</th><th>Email</th><th>Specialties</th><th>Rate</th><th></th></tr></thead>
+    <tbody>${list.map(v => `
+      <tr>
+        <td><b>${escapeHtml(v.companyName || v.name || '')}</b></td>
+        <td>${escapeHtml(v.phone)}</td>
+        <td>${escapeHtml(v.email)}</td>
+        <td>${(v.specialties||[]).map(s => `<span class="pill">${escapeHtml(s)}</span>`).join(' ')}</td>
+        <td>${v.hourlyRate ? '€' + v.hourlyRate : '—'}</td>
+        <td class="actions-cell">
+          <button class="btn danger tiny" onclick="deleteVendor('${v.id}','${escapeHtml(v.companyName||v.name||'')}')">Delete</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+async function createVendor() {
+  const data = {
+    name: document.getElementById('v-name').value.trim(),
+    email: document.getElementById('v-email').value.trim(),
+    phone: document.getElementById('v-phone').value.trim(),
+    specialties: document.getElementById('v-spec').value.split(',').map(s => s.trim()).filter(Boolean),
+    hourlyRate: parseFloat(document.getElementById('v-rate').value) || 0,
+  };
+  if (!data.name) return toast('Vendor name required', 'err');
+  if (!data.phone && !data.email) return toast('Phone or email required', 'err');
+  try {
+    await api('/vendors', 'POST', data);
+    toast('Vendor created');
+    ['v-name','v-email','v-phone','v-spec','v-rate'].forEach(id => document.getElementById(id).value = '');
+    loadVendors();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function deleteVendor(id, name) {
+  if (!confirm(`Delete vendor "${name}"?`)) return;
+  try { await api('/vendors', 'DELETE', { id }); toast('Deleted'); loadVendors(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+async function loadTickets() {
+  try {
+    const r = await api('/tickets', 'GET');
+    const list = r.tickets || [];
+    document.getElementById('tk-table').innerHTML = renderTicketTable(list);
+  } catch (e) { toast('Tickets: ' + e.message, 'err'); }
+}
+function renderTicketTable(list) {
+  if (!list.length) return '<div class="empty">No open tickets. Chat with the agent to create one.</div>';
+  return `<table>
+    <thead><tr><th>Ticket</th><th>Type</th><th>Property / Unit</th><th>Urgency</th><th>Status</th><th>Description</th></tr></thead>
+    <tbody>${list.map(t => {
+      const urg = (t.urgency||'').toLowerCase();
+      const urgCls = urg === 'emergency' || urg === 'urgent' ? 'urgent' : urg === 'high' ? 'high' : '';
+      return `
+      <tr>
+        <td><code>${escapeHtml(t.ticketId || t.id)}</code></td>
+        <td>${escapeHtml(t.issueType || '')}</td>
+        <td>${escapeHtml(t.propertyName || '')} ${escapeHtml(t.unit ? '/ ' + t.unit : '')}</td>
+        <td><span class="pill ${urgCls}">${escapeHtml(t.urgency || '—')}</span></td>
+        <td><span class="pill">${escapeHtml(t.status || '—')}</span></td>
+        <td>${escapeHtml((t.description||'').slice(0, 80))}${(t.description||'').length>80?'…':''}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
+async function refreshStats() {
+  const stats = document.getElementById('stats');
+  stats.innerHTML = '<div class="stat"><div class="l">Loading…</div></div>';
+  try {
+    const [props, tens, vens, tix] = await Promise.all([
+      api('/properties', 'GET').catch(() => ({ properties: [] })),
+      api('/tenants', 'GET').catch(() => ({ tenants: [] })),
+      api('/vendors', 'GET').catch(() => ({ vendors: [] })),
+      api('/tickets', 'GET').catch(() => ({ tickets: [] })),
+    ]);
+    stats.innerHTML = `
+      <div class="stat"><div class="l">Properties</div><div class="v">${(props.properties||[]).length}</div></div>
+      <div class="stat"><div class="l">Tenants</div><div class="v">${(tens.tenants||[]).length}</div></div>
+      <div class="stat"><div class="l">Vendors</div><div class="v">${(vens.vendors||[]).length}</div></div>
+      <div class="stat"><div class="l">Open tickets</div><div class="v">${(tix.tickets||[]).length}</div></div>`;
+  } catch (e) {
+    stats.innerHTML = `<div class="stat"><div class="l">Error</div><div class="v" style="font-size:14px;color:var(--danger)">${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+document.getElementById('btn-seed').addEventListener('click', async () => {
+  try { const r = await api('/seed-data', 'POST', {}); toast(r.message || 'Seeded'); refreshAll(); }
+  catch (e) { toast(e.message, 'err'); }
+});
+document.getElementById('btn-clear').addEventListener('click', async () => {
+  if (!confirm('Wipe ALL properties, tenants, vendors and tickets?')) return;
+  try {
+    const r = await api('/clear-data', 'DELETE', { confirm: true, full: true });
+    const d = r && r.deleted || {};
+    const total = Object.values(d).reduce((a, b) => a + (b || 0), 0);
+    const parts = Object.keys(d).filter(k => d[k]).map(k => `${k}=${d[k]}`).join(', ');
+    toast(total ? `Cleared ${total} record(s)${parts ? ' · ' + parts : ''}` : 'Nothing to clear');
+    refreshAll();
+  } catch (e) { toast(e.message, 'err'); }
+});
+document.getElementById('btn-refresh').addEventListener('click', refreshAll);
+document.getElementById('tk-refresh').addEventListener('click', loadTickets);
+document.getElementById('tk-clear').addEventListener('click', async () => {
+  if (!confirm('Delete ALL tickets? This cannot be undone. (Properties, tenants, and vendors stay intact.)')) return;
+  try {
+    const r = await api('/clear-data', 'DELETE', { confirm: true });
+    const n = (r && r.deleted && r.deleted.tickets) || 0;
+    toast(n ? `Cleared ${n} ticket(s)` : 'No tickets to clear');
+    loadTickets();
+    refreshStats();
+  } catch (e) { toast(e.message, 'err'); }
+});
+document.getElementById('p-create').addEventListener('click', createProperty);
+document.getElementById('t-create').addEventListener('click', createTenant);
+document.getElementById('v-create').addEventListener('click', createVendor);
+document.getElementById('btn-edit-base').addEventListener('click', () => {
+  const v = prompt('Webhook base URL', getBase());
+  if (v !== null) { setBase(v.trim()); refreshAll(); }
+});
+
+function refreshAll() { refreshStats(); loadProperties(); loadTenants(); loadVendors(); loadTickets(); }
+
+window.deleteProperty = deleteProperty;
+window.deleteTenant = deleteTenant;
+window.deleteVendor = deleteVendor;
+
+renderBase();
+refreshStats();
+loadProperties();
+// Pre-load so persona pill is populated before the user visits Tenants/Vendors tabs.
+loadTenants();
+loadVendors();
+</script>
+</body>
+</html>

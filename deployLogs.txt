@@ -1,0 +1,46 @@
+devashishthapliyal@Mac agent-property-management-demo % lua deploy all --force
+✅ Authenticated
+🚀 Deploying latest versions of all primitives...
+
+  ✅ Skill "tenant" v1.0.3 deployed
+  ✅ Skill "vendor" v1.0.4 deployed
+  ⚠️  Failed to deploy Webhook "properties": Version is already active
+  ⚠️  Failed to deploy Webhook "tenants": Version is already active
+  ⚠️  Failed to deploy Webhook "vendors": Version is already active
+  ⚠️  Failed to deploy Webhook "tickets": Version is already active
+  ⚠️  Failed to deploy Webhook "seed-data": Version is already active
+  ⚠️  Failed to deploy Webhook "clear-data": Version is already active
+  ⚠️  Failed to deploy Webhook "vendor-response": Version is already active
+  ⚠️  Failed to deploy Webhook "finance-approval": Version is already active
+  ⚠️  Failed to deploy Webhook "escalation-response": Version is already active
+  ⚠️  Failed to deploy Webhook "inbound-email": Version is already active
+  ⚠️  Failed to deploy Webhook "open-tickets": Version is already active
+  ✅ Job "escalation-check" v1.0.2 deployed
+  ✅ Job "daily-workload-report" v1.0.2 deployed
+  ⚠️  Failed to deploy PreProcessor "emergency-triage": Version is already active
+  ⚠️  Failed to deploy PostProcessor "ticket-summary": Version is already active
+  ⚠️  Failed to deploy PostProcessor "communication-log": Version is already active
+  ✅ Persona v2 deployed
+
+✅ Deployed 5 primitives successfully
+
+⚠️  14 deployments failed:
+     webhook "properties": Version is already active
+     webhook "tenants": Version is already active
+     webhook "vendors": Version is already active
+     webhook "tickets": Version is already active
+     webhook "seed-data": Version is already active
+     webhook "clear-data": Version is already active
+     webhook "vendor-response": Version is already active
+     webhook "finance-approval": Version is already active
+     webhook "escalation-response": Version is already active
+     webhook "inbound-email": Version is already active
+     webhook "open-tickets": Version is already active
+     preprocessor "emergency-triage": Version is already active
+     postprocessor "ticket-summary": Version is already active
+     postprocessor "communication-log": Version is already active
+✨ Tip: Re-deploy failed items with: lua deploy all --force
+⚠️  Partial deploy. Test what is live and re-deploy failures:
+   Test live:  `lua chat -e production -m "your test message"`
+   Re-deploy:  `lua deploy all --force`
+devashishthapliyal@Mac agent-property-management-demo %
