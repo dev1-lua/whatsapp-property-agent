@@ -725,6 +725,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 /* ─── LuaPop chat widget + refresh-context button ──────────────────── */
 let luaPopReady = false;
+function genSessionId() {
+  return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+// Fresh sessionId per page load → no thread bleed from prior browser sessions.
+let currentSessionId = genSessionId();
 function setChatStatus(msg) {
   const el = document.getElementById('luapop-status');
   if (el) el.textContent = msg;
@@ -750,6 +755,10 @@ function initLuaPop(opts = {}) {
           environment: 'production',
           displayMode: 'embedded',
           embeddedDisplayConfig: { targetContainerId: 'luapop-host' },
+          // sessionId is the thread key. Generating a new one before each
+          // re-init forces LuaPop to load an empty thread instead of
+          // re-fetching the previous chat history from the server.
+          sessionId: currentSessionId,
           chatTitle: 'Property Maintenance Agent',
           welcomeMessage: 'Hi! Tenants — identify yourself with name + phone, then tell me the issue and I\'ll file a ticket. Admins — ask portfolio-wide questions like "show me open tickets" or "vendors who handle plumbing".',
           chatInputPlaceholder: 'e.g. "Hi I\'m Laura at +353861234567, my sink is leaking"',
@@ -776,8 +785,9 @@ function initLuaPop(opts = {}) {
 }
 
 document.getElementById('btn-chat-refresh').addEventListener('click', () => {
-  // Destroy + re-init = fresh threadId so no stale conversational context bleeds in.
-  // Keeps the current persona — re-sends the identity intro after re-init.
+  // Destroy + re-init with a NEW sessionId so the server returns an empty
+  // thread. Keeps the current persona — re-sends the identity intro after.
+  currentSessionId = genSessionId();
   toolTimeline.clear();
   initLuaPop({ force: true });
   if (window.__demoPersona && window.__demoPersona.phone) {
@@ -787,8 +797,10 @@ document.getElementById('btn-chat-refresh').addEventListener('click', () => {
 });
 
 document.getElementById('btn-chat-clear').addEventListener('click', () => {
-  // Full reset: drop the persona, wipe local state, force fresh widget.
-  // Use this when the agent appears to be confused / replying with stale identity.
+  // Full reset: new sessionId (empty thread), drop the persona, wipe local
+  // state. Use this when the agent appears to be confused / replying with
+  // stale identity.
+  currentSessionId = genSessionId();
   window.__demoPersona = null;
   const sel = document.getElementById('persona-select');
   if (sel) sel.value = '';
@@ -808,6 +820,8 @@ document.getElementById('persona-select').addEventListener('change', async (e) =
   if (val.startsWith('vendor:') && !vendorsCache.length) await loadVendors();
   if (val.startsWith('admin:') && !adminsCache.length) await loadAdmins();
   applyPersona(val);
+  // Fresh sessionId per persona switch — each demo identity gets its own thread.
+  currentSessionId = genSessionId();
   toolTimeline.clear();
   initLuaPop({ force: true });
   const label = !val ? 'anonymous'
