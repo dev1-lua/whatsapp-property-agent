@@ -389,7 +389,8 @@
     <div class="panel-head">
       <h2>Chat with the agent</h2>
       <span style="display:flex; gap:6px; align-items:center;">
-        <button class="btn secondary tiny" id="btn-chat-refresh" title="Start a fresh chat thread">↻ New thread</button>
+        <button class="btn secondary tiny" id="btn-chat-refresh" title="Start a fresh chat thread (keeps current persona)">↻ New thread</button>
+        <button class="btn danger tiny" id="btn-chat-clear" title="Wipe the chat, reset persona to anonymous, and re-init the widget">🧹 Clear chat</button>
       </span>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.5;">
@@ -776,11 +777,27 @@ function initLuaPop(opts = {}) {
 
 document.getElementById('btn-chat-refresh').addEventListener('click', () => {
   // Destroy + re-init = fresh threadId so no stale conversational context bleeds in.
-  // The agent reads live data on every query_data call regardless, but this guarantees
-  // a clean slate.
+  // Keeps the current persona — re-sends the identity intro after re-init.
   toolTimeline.clear();
   initLuaPop({ force: true });
+  if (window.__demoPersona && window.__demoPersona.phone) {
+    sendIdentityIntro(window.__demoPersona);
+  }
   toast('Fresh chat thread started.', 'ok');
+});
+
+document.getElementById('btn-chat-clear').addEventListener('click', () => {
+  // Full reset: drop the persona, wipe local state, force fresh widget.
+  // Use this when the agent appears to be confused / replying with stale identity.
+  window.__demoPersona = null;
+  const sel = document.getElementById('persona-select');
+  if (sel) sel.value = '';
+  toolTimeline.clear();
+  // Suppress auto-intro on the upcoming reinit since we want truly anonymous state.
+  window.__suppressAutoIntro = true;
+  initLuaPop({ force: true });
+  setTimeout(() => { window.__suppressAutoIntro = false; }, 100);
+  toast('Chat cleared. Persona reset to anonymous.', 'ok');
 });
 
 /* ─── Persona pill change handler ──────────────────────────────────── */
@@ -796,7 +813,44 @@ document.getElementById('persona-select').addEventListener('change', async (e) =
   const label = !val ? 'anonymous'
     : (window.__demoPersona && window.__demoPersona.name) || val;
   toast('Persona: ' + label);
+
+  // LuaPop.init({userContext: ...}) is silently dropped — that data never
+  // reaches user._luaProfile on the agent side. So we instead send a
+  // natural-language intro message after the widget initializes. The persona
+  // is already trained to parse "Hi, I'm <name> at <phone>" and call
+  // get_user_context with phone + viewAs.
+  // Scenario clicks suppress this — they embed identity in the scenario message.
+  if (window.__demoPersona && window.__demoPersona.phone && !window.__suppressAutoIntro) {
+    sendIdentityIntro(window.__demoPersona);
+  }
 });
+
+function buildIdentityIntro(persona) {
+  const name = persona.name || 'a demo user';
+  const phone = persona.phone ? `+${persona.phone}` : '';
+  const viewAs = persona.viewAs;
+  let roleHint = '';
+  if (viewAs === 'admin')  roleHint = " I'm a property manager (admin).";
+  if (viewAs === 'tenant') roleHint = " I'm a tenant.";
+  if (viewAs === 'vendor') roleHint = " I'm a vendor.";
+  return `Hi, I'm ${name}${phone ? ` at ${phone}` : ''}.${roleHint}`;
+}
+
+function sendIdentityIntro(persona) {
+  const msg = buildIdentityIntro(persona);
+  // Poll LuaPop.sendMessage until widget is ready (init is async).
+  let tries = 0;
+  const interval = setInterval(() => {
+    tries++;
+    if (window.LuaPop && typeof window.LuaPop.sendMessage === 'function') {
+      try { window.LuaPop.sendMessage(msg); } catch (e) { console.warn('intro send failed:', e); }
+      clearInterval(interval);
+    } else if (tries > 30) {
+      clearInterval(interval);
+      console.warn('LuaPop.sendMessage never became ready');
+    }
+  }, 200);
+}
 
 bindScenarioButtons();
 
@@ -995,22 +1049,34 @@ function bindScenarioButtons() {
       if (!adminsCache.length) await loadAdmins();
       const personaVal = pickScenarioPersona(s.personaType);
       const sel = document.getElementById('persona-select');
+
+      // For scenarios, suppress the auto-intro and embed identity directly in
+      // the scenario message — so the user sees ONE message, not two.
+      window.__suppressAutoIntro = true;
       if (sel && personaVal) {
         sel.value = personaVal;
         sel.dispatchEvent(new Event('change'));
       }
+      window.__suppressAutoIntro = false;
+
+      // Build a combined message: "Hi, I'm <Name> at +<phone>. <scenario>"
+      const persona = window.__demoPersona;
+      const combinedMsg = (persona && persona.phone)
+        ? (buildIdentityIntro(persona) + ' ' + s.message)
+        : s.message;
+
       // Give the widget time to re-init before sending the message
       setTimeout(() => {
         try {
           if (window.LuaPop && typeof window.LuaPop.sendMessage === 'function') {
-            window.LuaPop.sendMessage(s.message);
+            window.LuaPop.sendMessage(combinedMsg);
           } else {
             toast('Widget does not expose sendMessage — type the message manually.', 'err');
           }
         } catch (e) {
           toast('Scenario send failed: ' + e.message, 'err');
         }
-      }, 400);
+      }, 600);
     });
   });
 }
