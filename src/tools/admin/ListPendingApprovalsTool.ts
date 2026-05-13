@@ -78,25 +78,33 @@ export class ListPendingApprovalsTool implements LuaTool {
           return at - bt; // oldest waiting first
         })
         .slice(0, cap)
-        .map((t: any) => ({
-          ticketId: t.ticketId,
-          quoteAmount: t.quoteAmount ?? null,
-          currency,
-          overThresholdBy:
-            typeof t.quoteAmount === 'number' && t.quoteAmount > threshold
-              ? t.quoteAmount - threshold
-              : null,
-          assignedVendorName: t.assignedVendorName ?? null,
-          tenantName: t.tenantName ?? null,
-          propertyName: t.propertyName,
-          propertyCode: t.propertyCode,
-          unit: t.unit,
-          issueType: t.issueType,
-          urgency: t.urgency,
-          waitingHours: ageHours(t.updatedAt ?? t.createdAt),
-          createdAt: t.createdAt,
-          updatedAt: t.updatedAt
-        }));
+        .map((t: any) => {
+          // Quote amount may be stored at t.quote.amount (SubmitQuoteTool)
+          // or t.estimatedCost (some legacy paths). Read both.
+          const quoteAmount: number | null =
+            typeof t?.quote?.amount === 'number' ? t.quote.amount
+            : typeof t?.estimatedCost === 'number' ? t.estimatedCost
+            : null;
+          return {
+            ticketId: t.ticketId,
+            quoteAmount,
+            currency,
+            overThresholdBy:
+              typeof quoteAmount === 'number' && quoteAmount > threshold
+                ? quoteAmount - threshold
+                : null,
+            assignedVendorName: t.assignedVendorName ?? null,
+            tenantName: t.tenantName ?? null,
+            propertyName: t.propertyName,
+            propertyCode: t.propertyCode,
+            unit: t.unit,
+            issueType: t.issueType,
+            urgency: t.urgency,
+            waitingHours: ageHours(t.updatedAt ?? t.createdAt),
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt
+          };
+        });
 
       return {
         success: true,

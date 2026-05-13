@@ -28,6 +28,12 @@ const ACTIVE_STATUSES = new Set<string>([
 const URGENCY_ORDER = ['emergency', 'high', 'medium', 'low'];
 
 function summarize(t: any) {
+  // Quote amount lives in two places depending on which write path created it:
+  // SubmitQuoteTool writes nested t.quote.amount + flat t.estimatedCost.
+  const quoteAmount: number | null =
+    typeof t?.quote?.amount === 'number' ? t.quote.amount
+    : typeof t?.estimatedCost === 'number' ? t.estimatedCost
+    : null;
   return {
     ticketId: t.ticketId,
     status: t.status,
@@ -42,7 +48,7 @@ function summarize(t: any) {
     unit: t.unit,
     tenantName: t.tenantName ?? null,
     assignedVendorName: t.assignedVendorName ?? null,
-    quoteAmount: t.quoteAmount ?? null,
+    quoteAmount,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt
   };

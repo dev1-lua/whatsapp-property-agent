@@ -120,7 +120,7 @@ agent:
 skills:
   - name: tenant
     skillId: 64acd927-3f14-4f13-aa92-123b0a79ccd1
-    version: 1.0.21
+    version: 1.0.22
   - name: vendor
     skillId: 0237f1ba-b115-4e02-a6fd-cf8eb24f91ff
     version: 1.0.15
@@ -181,6 +181,6 @@ postprocessors:
     version: 1.0.12
 mcpServers: []
 backup:
-  activeVersion: 19
-  lastHash: 6925996f62b29d5437207a7b8a8058794e4c63230159ed0196bd1ec3eb70c2db
-  lastPushedAt: '2026-05-12T23:49:46.696Z'
+  activeVersion: 20
+  lastHash: 86343e5decdd0867960313e4c20cc517f063cb98284d418bea364782f739e0e8
+  lastPushedAt: '2026-05-13T00:09:15.743Z'
