@@ -21,7 +21,7 @@
 import { LuaWebhook } from 'lua-cli';
 import { Admins, Contacts } from '../../services/data.js';
 import { CONTACT_ROLES } from '../../utils/constants.js';
-import { normalizeEmail, collectPhones } from '../../utils/identity.js';
+import { normalizeEmail, collectPhones, anyPhoneMatch } from '../../utils/identity.js';
 
 function flatten(entry: any) {
   if (!entry) return null;
@@ -79,7 +79,7 @@ export default new LuaWebhook({
             const all: any = await Contacts.get({}, 1, 1000);
             for (const e of all?.data ?? []) {
               const stored: string[] = Array.isArray(e?.data?.phones) ? e.data.phones : [];
-              if (stored.some((p: string) => phones.includes(p))) {
+              if (anyPhoneMatch(stored, phones)) {
                 existing = e;
                 break;
               }

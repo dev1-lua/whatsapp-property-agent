@@ -22,7 +22,8 @@ import {
   collectPhones,
   collectEmails,
   normalizePhone,
-  normalizeEmail
+  normalizeEmail,
+  anyPhoneMatch
 } from '../../utils/identity.js';
 
 type UserType = 'tenant' | 'vendor' | 'admin' | 'unregistered';
@@ -72,7 +73,7 @@ function envAdminMatch(emails: string[], phones: string[]): boolean {
   const admin = adminIdentifiers();
   if (admin.emails.length === 0 && admin.phones.length === 0) return false;
   if (emails.some((e) => admin.emails.includes(e))) return true;
-  if (phones.some((p) => admin.phones.includes(p))) return true;
+  if (anyPhoneMatch(admin.phones, phones)) return true;
   return false;
 }
 
@@ -187,7 +188,7 @@ async function findContact(
       const all: any = await Contacts.get({}, 1, 1000);
       for (const entry of all?.data ?? []) {
         const stored: string[] = Array.isArray(entry?.data?.phones) ? entry.data.phones : [];
-        if (stored.some((p) => phones.includes(p))) {
+        if (anyPhoneMatch(stored, phones)) {
           return { id: entry.id, data: entry.data ?? {} };
         }
       }
@@ -267,7 +268,7 @@ export class GetUserContextTool implements LuaTool {
         if (phoneCandidates.length === 0 && emailCandidates.length === 0) return true;
         const storedPhones: string[] = Array.isArray(entryData?.phones) ? entryData.phones : [];
         const storedEmail: string = normalizeEmail(entryData?.email ?? '');
-        const phoneOverlap = storedPhones.some((p) => phoneCandidates.includes(p));
+        const phoneOverlap = anyPhoneMatch(storedPhones, phoneCandidates);
         const emailOverlap = !!storedEmail && emailCandidates.includes(storedEmail);
         return phoneOverlap || emailOverlap;
       }

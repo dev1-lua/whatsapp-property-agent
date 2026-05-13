@@ -27,7 +27,7 @@ import { LuaTool, User, env } from 'lua-cli';
 import { z } from 'zod';
 import { Contacts } from '../../services/data.js';
 import { CONTACT_ROLES, type ContactRole } from '../../utils/constants.js';
-import { collectPhones, normalizeEmail } from '../../utils/identity.js';
+import { collectPhones, normalizeEmail, anyPhoneMatch } from '../../utils/identity.js';
 
 const KNOWN_SPECIALTIES = ['plumbing', 'electrical', 'hvac', 'appliance', 'structural', 'other'];
 
@@ -120,7 +120,7 @@ export class RegisterSelfAsVendorTool implements LuaTool {
             const all: any = await Contacts.get({}, 1, 1000);
             for (const entry of all?.data ?? []) {
               const stored: string[] = Array.isArray(entry?.data?.phones) ? entry.data.phones : [];
-              if (stored.some((p: string) => phones.includes(p))) {
+              if (anyPhoneMatch(stored, phones)) {
                 existing = { id: entry.id, data: entry.data ?? {} };
                 break;
               }

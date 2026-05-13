@@ -130,7 +130,76 @@ Shared `_scope.ts` helper enforces `userType==='admin'` and resolves `adminScope
 
 **Sandbox smoke:** compile passed (57 primitives), runtime alive via tenant-onboarding path. Admin-path data tests deferred to live prod (sandbox Data collections are empty — no Niamh, no seed). Tools follow the same patterns as `LookupVendorsTool` / `MyTicketsTool` / `open-tickets` webhook, which all work in prod.
 
-**Awaiting:** `/lua-deploy` + Playwright pass on the live Netlify URL (pick Niamh from admin dropdown, run the four question intents, verify the right tool is called and real data returns).
+### M3 verification — 16/16 pass on v1.0.22 (2026-05-13, live Playwright on Netlify)
+
+Test data seeded via the UI itself (Mahmoud reports plumbing at WESTGATE-07 5C → 2 tickets auto-assigned to Sean Kelly → vendor submits €650 quote on one → status → pending_approval). Final live state: 3 open tickets (1 TEMPLE + 2 WESTGATE), 1 pending_approval, spans 2 properties.
+
+| # | Persona | Test | Result |
+|---|---|---|---|
+| 1 | Niamh (scope=all) | open count | 3 ✓ |
+| 2 | Niamh | in_progress | 3 tickets w/ tenantName ✓ |
+| 3 | Niamh | pending_approvals | €650 / over-threshold-by €150 / Sean Kelly / Mahmoud Tester ✓ |
+| 4 | Niamh | groupBy status | Pending Approval:1, Vendor Contacted:2 ✓ |
+| 5 | Niamh | groupBy urgency | Emergency:2, Medium:1 ✓ |
+| 6 | Niamh | recent_activity | 8 newest events covering both WESTGATE tickets ✓ |
+| 7 | Conor (TEMPLE-04 only) | open count | **1 (not 3)** — discriminating ✓ |
+| 8 | Conor | in_progress | only MT-2605-EU9BY4 — WESTGATE hidden ✓ |
+| 9 | Conor | pending_approvals | 0 — €650 ticket properly invisible ✓ |
+| 10 | Conor | recent_activity | **0 WESTGATE events leak** — critical cross-property audit guard ✓ |
+| 11 | Conor | out_of_scope WESTGATE-07 query | Graceful refusal ✓ |
+| 12 | Conor | lowercase `temple-04` | Matched as TEMPLE-04 (case normalization) ✓ |
+| 13 | Stefan (scope=all) | open count | 3 (matches Niamh) ✓ |
+| 14 | Laura (tenant) asks admin question | "actions only available to property managers" — persona refuses ✓ |
+| 15 | Laura forces `Run get_open_ticket_count` | Persona still refuses; logs confirm tool never invoked ✓ |
+| 16 | Console errors classified | All 100% LuaPop widget internals (`/webchat/config` 404, `/chat/welcome` 401, WS reinit race) — zero from M3 ✓ |
+
+### M3 bug fix + hardenings shipped in v1.0.22
+
+**Bug fix:** `ListTicketsInProgress` + `ListPendingApprovals` were reading non-existent `t.quoteAmount`. `SubmitQuoteTool` writes nested `t.quote.amount` + flat `t.estimatedCost`. Fixed: `t.quote?.amount ?? t.estimatedCost ?? null`. Re-verified live: €650 + €150-over-threshold surfaces.
+
+**Hardenings:**
+- `_scope.ts` propertyCode comparison is now case + whitespace insensitive (`normCode` helper). Adds defensive matching when scope is written as `['temple-04']` vs ticket `propertyCode: 'TEMPLE-04'`.
+- `tenantName` added to admin list outputs (`list_tickets_in_progress`, `list_pending_approvals`). Finance review needs to know whose ticket is queued.
+- `recordInScope` excludes records *without* propertyCode for scoped admins (was previously falling back to include-everything which would leak ambient/system rows).
+- `ListRecentActivityTool` joins audit_events → tickets → propertyCode and excludes events from out-of-scope tickets. Audit events lacking a ticketId are excluded from scoped views entirely (no ambient leak).
+
+### Defense-in-depth verified live
+
+1. **Persona layer** — refuses admin questions from tenant/vendor users (T-14, T-15)
+2. **Tool layer** — `_scope.ts` returns `forbidden` if `userType !== 'admin'` (verified indirectly via T-11 out_of_scope)
+3. **Scope filter** — `recordInScope` rejects records outside admin's `adminScope[]` (T-7, T-8, T-9, T-10)
+4. **Cross-resource audit join** — `list_recent_activity` joins event.ticketId → ticket.propertyCode and excludes out-of-scope events (T-10 — the critical cross-resource leak guard)
+
+### M3 final live versions (2026-05-13)
+
+- persona v16
+- tenant skill v1.0.22 (admin tools + quote-field bug fix + RegisterSelfAsVendor)
+- vendor skill v1.0.15
+- 12 webhooks v1.0.12 (admins v1.0.6)
+- 2 jobs v1.0.11, preprocessor v1.0.11, postprocessors v1.0.11
+- HTML unchanged (`fastidious-malasada-285366.netlify.app`)
+
+### M2.1 RegisterSelfAsVendor (shipped with M3 batch)
+
+Mirror of `RegisterSelfAsTenant` for vendor onboarding. Wired into tenant skill. Persona Section 0 teaches the LLM the vendor-intent branch: "I'm a contractor / I do plumbing / I'm a vendor" → infer + register. Multi-role merge: appends `vendor` to `roles[]` and unions `specialties[]` without breaking existing tenant/admin rows. Channel-only identifier capture (no env override risk). Code path verified by compile + parity with the proven tenant register tool; live data verification deferred to actual WhatsApp from a fresh number (CLI sandbox has no `_luaProfile.phone`).
+
+### Known minor UX (deferred)
+
+- `waitingHours: 0` for sub-hour pending approvals reads odd but is mathematically correct. Future: render `minutesWaiting` when waiting < 1h.
+- LuaPop tools-timeline panel stays empty — the widget doesn't emit `onToolInvoked` in current version. HTML wires the callback defensively; gracefully degrades. Engine panel (right side of HTML) gives request-level proof instead.
+
+### Next session — M4 (vendor WhatsApp outbound ping)
+
+The pieces needed for M4 are already in place:
+- vendor row stores `userId` (captured on first inbound WhatsApp message via `get_user_context` backfill — see `findContact()` line ~365 in GetUserContextTool)
+- `User.get(userId).send([{type:'text', text:'...'}])` pattern proven in `src/tools/completion/RequestTenantConfirmationTool.ts:49-51`
+- Audit + communication logging helpers in place
+
+To do in M4:
+1. On `create_maintenance_ticket` auto-assignment → if assigned vendor has `userId` on file → `User.get(userId).send(...)` with ticket details + "reply ACCEPT or DECLINE"
+2. On vendor-response webhook → if tenant has `userId` → ping tenant "your ticket was acknowledged"
+3. Persona update — explain the new outbound flow so the agent doesn't double-message
+4. Handshake fallback: if vendor has no `userId` yet (never messaged the agent), surface a one-time link
 
 ### M1 production E2E test (2026-05-13, via Playwright on live Netlify)
 

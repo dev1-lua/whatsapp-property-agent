@@ -335,7 +335,12 @@
     <div class="row">
       <div><label>Name</label><input id="t-name" placeholder="Jane Doe" /></div>
       <div><label>Email</label><input id="t-email" placeholder="jane@example.com" /></div>
-      <div><label>Phone</label><input id="t-phone" placeholder="+353861234567" /></div>
+      <div><label>Phone</label>
+        <div style="display:flex; gap:4px;">
+          <select id="t-cc" style="flex: 0 0 110px;"></select>
+          <input id="t-phone" placeholder="9876543210" style="flex:1; min-width:0;" />
+        </div>
+      </div>
       <div><label>Property</label><select id="t-prop"></select></div>
       <div><label>Unit</label><input id="t-unit" placeholder="3B" /></div>
     </div>
@@ -354,7 +359,12 @@
     <div class="row">
       <div><label>Vendor name</label><input id="v-name" placeholder="Dublin Plumbing Co." /></div>
       <div><label>Email</label><input id="v-email" placeholder="ops@example.com" /></div>
-      <div><label>Phone</label><input id="v-phone" placeholder="+353112233445" /></div>
+      <div><label>Phone</label>
+        <div style="display:flex; gap:4px;">
+          <select id="v-cc" style="flex: 0 0 110px;"></select>
+          <input id="v-phone" placeholder="9876543210" style="flex:1; min-width:0;" />
+        </div>
+      </div>
       <div><label>Specialties (comma-separated)</label><input id="v-spec" placeholder="plumbing, heating" /></div>
       <div><label>Hourly rate</label><input id="v-rate" type="number" placeholder="65" /></div>
     </div>
@@ -1259,7 +1269,7 @@ async function createTenant() {
   const data = {
     name: document.getElementById('t-name').value.trim(),
     email: document.getElementById('t-email').value.trim(),
-    phone: document.getElementById('t-phone').value.trim(),
+    phone: composePhoneE164('t-cc', 't-phone'),
     propertyId,
     unit: document.getElementById('t-unit').value.trim(),
   };
@@ -1271,6 +1281,7 @@ async function createTenant() {
     await api('/tenants', 'POST', data);
     toast('Tenant created');
     ['t-name','t-email','t-phone','t-unit'].forEach(id => document.getElementById(id).value = '');
+    // Keep CC select on its last-used value so back-to-back entries stay efficient.
     loadTenants();
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -1323,7 +1334,7 @@ async function createVendor() {
   const data = {
     name: document.getElementById('v-name').value.trim(),
     email: document.getElementById('v-email').value.trim(),
-    phone: document.getElementById('v-phone').value.trim(),
+    phone: composePhoneE164('v-cc', 'v-phone'),
     specialties: document.getElementById('v-spec').value.split(',').map(s => s.trim()).filter(Boolean),
     hourlyRate: parseFloat(document.getElementById('v-rate').value) || 0,
   };
@@ -1429,6 +1440,58 @@ function refreshAll() { refreshStats(); loadProperties(); loadTenants(); loadVen
 window.deleteProperty = deleteProperty;
 window.deleteTenant = deleteTenant;
 window.deleteVendor = deleteVendor;
+
+// Country codes for the Add Tenant / Add Vendor forms. Order = demo frequency.
+// Phones are stored digits-only (no +) so suffix-match in the agent reconciles
+// any operator/channel format drift.
+const COUNTRY_CODES = [
+  { cc: '91',  flag: '🇮🇳', name: 'India' },
+  { cc: '353', flag: '🇮🇪', name: 'Ireland' },
+  { cc: '971', flag: '🇦🇪', name: 'UAE' },
+  { cc: '44',  flag: '🇬🇧', name: 'UK' },
+  { cc: '1',   flag: '🇺🇸', name: 'US/CA' },
+  { cc: '65',  flag: '🇸🇬', name: 'Singapore' },
+  { cc: '852', flag: '🇭🇰', name: 'Hong Kong' },
+  { cc: '61',  flag: '🇦🇺', name: 'Australia' },
+  { cc: '49',  flag: '🇩🇪', name: 'Germany' },
+  { cc: '33',  flag: '🇫🇷', name: 'France' },
+  { cc: '34',  flag: '🇪🇸', name: 'Spain' },
+  { cc: '39',  flag: '🇮🇹', name: 'Italy' },
+  { cc: '966', flag: '🇸🇦', name: 'Saudi Arabia' },
+  { cc: '86',  flag: '🇨🇳', name: 'China' },
+  { cc: '81',  flag: '🇯🇵', name: 'Japan' }
+];
+
+function populateCountrySelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = COUNTRY_CODES
+    .map(c => `<option value="${c.cc}">${c.flag} +${c.cc}</option>`)
+    .join('');
+  const saved = localStorage.getItem('demo.cc') || '91';
+  sel.value = saved;
+  sel.addEventListener('change', () => localStorage.setItem('demo.cc', sel.value));
+}
+
+/**
+ * Compose an E.164-style digits-only phone (no +) from a CC <select> and a
+ * local-digits <input>. Smart-prepend: if the user typed the full international
+ * number (starts with + / 00 / the selected CC), don't double-prepend.
+ */
+function composePhoneE164(ccSelectId, phoneInputId) {
+  const cc = (document.getElementById(ccSelectId)?.value || '').replace(/\D/g, '');
+  const raw = (document.getElementById(phoneInputId)?.value || '').trim();
+  if (!raw) return '';
+  let digits = raw.replace(/^\+/, '').replace(/^00/, '').replace(/\D/g, '');
+  if (!digits) return '';
+  // If user already typed the CC at the start, accept as-is.
+  if (cc && digits.startsWith(cc) && digits.length > cc.length + 4) return digits;
+  // Otherwise prepend the selected CC.
+  return cc + digits;
+}
+
+populateCountrySelect('t-cc');
+populateCountrySelect('v-cc');
 
 renderBase();
 refreshStats();
