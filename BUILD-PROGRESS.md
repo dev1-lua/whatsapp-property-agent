@@ -188,18 +188,80 @@ Mirror of `RegisterSelfAsTenant` for vendor onboarding. Wired into tenant skill.
 - `waitingHours: 0` for sub-hour pending approvals reads odd but is mathematically correct. Future: render `minutesWaiting` when waiting < 1h.
 - LuaPop tools-timeline panel stays empty — the widget doesn't emit `onToolInvoked` in current version. HTML wires the callback defensively; gracefully degrades. Engine panel (right side of HTML) gives request-level proof instead.
 
-### Next session — M4 (vendor WhatsApp outbound ping)
+### 2026-05-13 EOD — M5 shipped + hardening pass
 
-The pieces needed for M4 are already in place:
-- vendor row stores `userId` (captured on first inbound WhatsApp message via `get_user_context` backfill — see `findContact()` line ~365 in GetUserContextTool)
-- `User.get(userId).send([{type:'text', text:'...'}])` pattern proven in `src/tools/completion/RequestTenantConfirmationTool.ts:49-51`
-- Audit + communication logging helpers in place
+**M5 shipped to prod:**
+- `src/tools/intake/ResetMyIdentityTool.ts` — clears cached identity fields on the user record AND calls `DELETE /chat/history/{agentId}?targetIdentifier=<userId|mobile|email>` to wipe the transcript on Lua's side. Needs `LUA_API_KEY` + `AGENT_ID` env vars (both set on prod + sandbox).
+- Persona v19 — strict allowlist of trigger phrases (rewritten after a production incident — see below).
+- Tenant skill v1.0.24 deployed.
 
-To do in M4:
-1. On `create_maintenance_ticket` auto-assignment → if assigned vendor has `userId` on file → `User.get(userId).send(...)` with ticket details + "reply ACCEPT or DECLINE"
-2. On vendor-response webhook → if tenant has `userId` → ping tenant "your ticket was acknowledged"
-3. Persona update — explain the new outbound flow so the agent doesn't double-message
-4. Handshake fallback: if vendor has no `userId` yet (never messaged the agent), surface a one-time link
+**Hardening pass forced by production usage (2026-05-13 afternoon):**
+
+1. **Suffix-tolerant phone matching across all 6 lookup sites.** `src/utils/identity.ts` added `phonesMatch(a, b)` + `anyPhoneMatch(stored, candidates)` that compare the last 10 digits when full-string equality fails. Reconciles operator-typed local-only rows (`9675151149`) with WhatsApp-channel full-E.164 inbound (`919675151149`). Sites updated: GetUserContext findContact, GetUserContext cacheStillMatches, envAdminMatch, RegisterSelfAsTenant dedupe, RegisterSelfAsVendor dedupe, admins.webhook dedupe.
+
+2. **Country-code dropdown on HTML "Add tenant" / "Add vendor".** `property-guy-demo.html` — `composePhoneE164(ccSelectId, phoneInputId)` smart-prepends the selected CC (or accepts as-is if user typed the full international). 15 countries, defaults to India (`+91`), persists last selection in localStorage `demo.cc`. New rows land in E.164 from day one; suffix-match is the safety net for legacy rows.
+
+3. **Cross-unit duplicate-detection bug fixed.** `CreateMaintenanceTicketTool.ts` was scoping duplicates by `propertyCode + issueType` only — so Mahmoud's plumbing tickets at Westgate 5C surfaced as "duplicates" when Devashish tried to file a plumbing ticket at Westgate 9A. Fix: scope by `propertyCode + unit + tenantId + issueType` when those are present.
+
+4. **🚨 Critical: `reset_my_identity` was being called by the LLM mid-conversation.** Production log (10:30:16 UTC for Shlok) showed the agent invoking `reset_my_identity` with `{}` after a 4th photo upload, then re-running `get_user_context`, then re-greeting "Hi shlok!" — because the LLM interpreted Shlok's photo confusion as "wrong identity". **Fix:** persona v18 → v19 with strict allowlist of trigger phrases ("forget me", "reset me", "start over", "I'm a different person", "I'm new" only when paired with denial) plus explicit DO-NOT-CALL list: never on photos, never on questions, never mid-flow, never on agent's own confusion.
+
+**Open issues going into next session:**
+- Platform-side message loss: production log showed Shlok's text "Bathroom has water issues." at 10:24:57 hit the preprocessor but produced no tool call and no agent_response. Lua's chat/queue layer, not our code. Demo workaround: keep conversations active, don't leave text-only messages dangling.
+- Photo processing latency 5–15s (Gemini vision) — known issue from M0.
+
+**Production env vars (Lua dashboard, current):**
+```
+APPROVAL_THRESHOLD=500
+APPROVER_EMAIL=dev@luaimplementation.ai
+MANAGER_EMAIL=dev@luaimplementation.ai
+FIRM_NAME="Demo Property Management"
+CURRENCY=EUR
+ADMIN_EMAILS=dev@luaimplementation.ai
+LUA_API_KEY=api_*** (set 2026-05-13 — required for reset_my_identity chat-history DELETE)
+AGENT_ID=baseAgent_agent_1778570087307_uu37q4v0m (set 2026-05-13)
+```
+
+**Production DB state (2026-05-13 EOD, after wipe+seed):**
+- 0 tickets, 0 escalations, 0 communications, 0 audit_events
+- 3 properties (TEMPLE-04, WESTGATE-07, QUAY-12)
+- 10 contacts (seed): Laura Murphy, Aoife Walsh, Conor Daly (multi-role admin+tenant), James O'Brien (multi-unit), Niamh Quinn, Karim Hassan, Mahmoud Tester, Sean Kelly (vendor), Patrick O'Sullivan (vendor), one more vendor.
+- Devashish + shlok rows (operator-typed / self-registered) were wiped with the rest. They'll re-register on first message.
+
+---
+
+### Next session — M4 revised: email-first vendor notification + WhatsApp tenant ack
+
+**Goal flip from the original M4 plan.** Vendors won't get WhatsApp pings — they'll get **real email** via Lua's native email channel. Tenant ack stays on WhatsApp via `User.get(userId).send()`. Reason: emails are a cold channel (no handshake required, no Meta template), which makes the demo work for any vendor email address the user pastes in.
+
+**Build steps:**
+
+1. **Wire Lua's native email channel.** Replace the stub in `src/utils/email-notifications.ts` with a real send via Lua's email channel (research first — possibly `Channels.email.send()` / `Templates.email.send()` / a channel SDK call). The existing `sendEmail({ to, subject, html, text, ticketId })` signature should stay the same so all existing callsites (`CreateMaintenanceTicketTool`, `RequestTenantConfirmationTool`, `SendForApprovalTool`, etc.) keep compiling.
+
+2. **Vendor outbound on ticket creation.** `CreateMaintenanceTicketTool.ts` already calls `sendEmail` to the assigned vendor (~line 280-300) using the template from `src/utils/email-templates.ts → vendorJobAssignedEmail`. Once `sendEmail` is real (step 1), this beat works automatically. Verify the template content is fit for vendor-facing (ticket details + ACCEPT/DECLINE call to action with a unique reply token / webhook URL).
+
+3. **Vendor accept → tenant WhatsApp ack.** Two paths to ACCEPT:
+   - **Inbound email reply** → `inbound-email.webhook.ts` parses the reply, extracts ticketId + decision, hits the same internal logic as `vendor-response.webhook.ts`.
+   - **Unique link in the email** → vendor clicks → hits `vendor-response` webhook with `{ ticketId, action: 'accept', vendorId }`.
+
+   In either case, after the webhook updates the ticket to `vendor_contacted`, **send the tenant a WhatsApp ack** via `User.get(ticket.tenantUserId).send([{type:'text', text:'Update on MT-X: <vendor> accepted; they'll be in touch to schedule.'}])`. Pattern proven in `RequestTenantConfirmationTool.ts:49-51`.
+
+4. **Persona update.** Tell the agent that vendor outbound is handled by the email beat (and the tenant ack arrives automatically) so it doesn't say "I'll let the vendor know" in chat. Add to TENANT MODE step 7.
+
+5. **HTML "Vendor email" affordance.** The "Add vendor" form already has an email field. Make sure it's mandatory (or at least flagged) and visible in the vendor table. User will paste real email addresses for demo vendors.
+
+**Prerequisites already in place:**
+- `User.get(userId).send([{type:'text'}])` pattern proven and live in prod (`RequestTenantConfirmationTool`, `ResetMyIdentityTool` does NOT use User.send but the same SDK).
+- `ticket.tenantUserId` is captured at ticket creation (`CreateMaintenanceTicketTool.ts:124-125` reads `user?._luaProfile?.userId`).
+- `vendor.userId` backfill on first inbound, and now `vendor.email` is the primary contact channel.
+- Audit + communication-log helpers in place.
+- API key already in env (used by reset tool — same auth surface likely works for email).
+
+**Constraints carried forward:**
+- Never `z.enum` / `z.nativeEnum` / `z.union` in LuaTool inputSchema — Gemini function calls break. Use `z.string().describe('one of: ...')`.
+- Never hardcode seed data (names/phones/property codes/cities) in persona text or LLM-facing strings.
+- Channel identifiers always win — never let `TEST_USER_PHONE/EMAIL` env vars replace `_luaProfile.phone`.
+- Don't deploy without explicit go-ahead from the user — they run `lua deploy` by hand.
+- **Reset trigger is now a strict allowlist** (persona v19) — don't loosen it without a real reason.
 
 ### M1 production E2E test (2026-05-13, via Playwright on live Netlify)
 

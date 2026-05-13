@@ -11,6 +11,7 @@ import { Tickets, Vendors } from '../../services/data.js';
 import { logEvent, logStatusChange } from '../../utils/audit-log.js';
 import { ActorType, EventType, TicketStatus } from '../../utils/constants.js';
 import { canTransition } from '../../utils/ticket-helpers.js';
+import { logCommunication } from '../../utils/communication-log.js';
 
 export class ClaimJobTool implements LuaTool {
   name = 'claim_job';
@@ -135,6 +136,32 @@ export class ClaimJobTool implements LuaTool {
         actorName: vendorName,
         payload: { selfAssigned: true, vendorName }
       });
+
+      // Tenant WhatsApp ack — "vendor accepted, fix is coming"
+      if (ticket.tenantUserId) {
+        try {
+          const tenantUser: any = await User.get(ticket.tenantUserId);
+          if (tenantUser) {
+            const ackText =
+              `Update on ${ticket.ticketId}: ${vendorName} has accepted the job and will be in touch shortly to arrange the fix. We'll keep you posted.`;
+            await tenantUser.send([{ type: 'text', text: ackText }]);
+            await logCommunication({
+              ticketId: ticket.ticketId,
+              direction: 'Outbound',
+              channel: 'WhatsApp',
+              senderType: 'Agent',
+              senderName: 'Property Maintenance Agent',
+              recipient: ticket.tenantUserId,
+              subject: `${ticket.ticketId} accepted by ${vendorName}`,
+              body: ackText,
+              contentType: 'Plain Text',
+              delivery: 'sent'
+            });
+          }
+        } catch (err) {
+          console.error('Tenant WhatsApp ack failed (non-fatal):', err);
+        }
+      }
 
       return {
         success: true,

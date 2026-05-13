@@ -32,6 +32,7 @@ import {
   vendorJobAssignedEmail,
   tenantTicketCreatedEmail
 } from '../../utils/email-templates.js';
+import { logCommunication } from '../../utils/communication-log.js';
 
 const ACTIVE_TICKET_STATUSES: string[] = [
   TicketStatus.REPORTED,
@@ -137,9 +138,28 @@ export class CreateMaintenanceTicketTool implements LuaTool {
             1,
             50
           );
+          // Scope duplicates by the SAME UNIT when a unit was provided. Multi-unit
+          // buildings (Westgate Court 5C vs 9A) share a propertyCode but the
+          // tickets belong to different humans / different sinks. Cross-unit
+          // matching produced false-positive duplicate warnings in prod.
+          const inputUnit = (input.unit ?? '').trim().toLowerCase();
+          const inputTenantId = (input.tenantId ?? '').trim();
           const duplicates = (dupRes?.data ?? []).filter((entry: any) => {
-            const status: string = entry?.data?.status ?? '';
-            return ACTIVE_TICKET_STATUSES.includes(status);
+            const d = entry?.data ?? {};
+            const status: string = d.status ?? '';
+            if (!ACTIVE_TICKET_STATUSES.includes(status)) return false;
+            // If we know the unit, only match same-unit tickets.
+            if (inputUnit) {
+              const storedUnit = String(d.unit ?? '').trim().toLowerCase();
+              if (storedUnit && storedUnit !== inputUnit) return false;
+            }
+            // If we know the tenant, only match same-tenant tickets (defense in
+            // depth: catches whole-building leases with no unit).
+            if (inputTenantId) {
+              const storedTenant = String(d.tenantId ?? '').trim();
+              if (storedTenant && storedTenant !== inputTenantId) return false;
+            }
+            return true;
           });
 
           if (duplicates.length > 0) {
@@ -152,7 +172,7 @@ export class CreateMaintenanceTicketTool implements LuaTool {
               success: false,
               warning: 'duplicate_detected',
               duplicateTickets: list,
-              message: `An open ${issueType} ticket already exists for property ${input.propertyCode}: ${list[0].ticketId}. If this is intentionally a different issue, retry with skipDuplicateCheck=true.`
+              message: `An open ${issueType} ticket already exists for ${input.propertyCode}${inputUnit ? ` unit ${input.unit}` : ''}: ${list[0].ticketId}. If this is intentionally a different issue, retry with skipDuplicateCheck=true.`
             };
           }
         } catch (err) {
@@ -276,7 +296,42 @@ export class CreateMaintenanceTicketTool implements LuaTool {
             }
           });
 
-          // Email the vendor
+          // WhatsApp-ping the vendor (primary channel)
+          if (vendor.userId) {
+            try {
+              const vendorUser: any = await User.get(vendor.userId);
+              if (vendorUser) {
+                const pingText =
+                  `New job assigned: ${ticketId}\n` +
+                  `Property: ${input.propertyName}${input.unit ? ` (${input.unit})` : ''}\n` +
+                  `Issue: ${issueType} • ${urgency.toUpperCase()}\n` +
+                  `${input.description}\n\n` +
+                  `Reply "accept ${ticketId}" to take it, or "decline ${ticketId}" if you can't.`;
+                const msgs: any[] = [{ type: 'text', text: pingText }];
+                const firstImage = (input.imageUrls ?? [])[0];
+                if (firstImage) {
+                  msgs.push({ type: 'text', text: `Photo: ${firstImage}` });
+                }
+                await vendorUser.send(msgs);
+                await logCommunication({
+                  ticketId,
+                  direction: 'Outbound',
+                  channel: 'WhatsApp',
+                  senderType: 'Agent',
+                  senderName: 'Property Maintenance Agent',
+                  recipient: vendor.userId,
+                  subject: `Job assigned: ${ticketId}`,
+                  body: pingText,
+                  contentType: 'Plain Text',
+                  delivery: 'sent'
+                });
+              }
+            } catch (err) {
+              console.error('Vendor WhatsApp ping failed (non-fatal):', err);
+            }
+          }
+
+          // Email the vendor (fallback / audit trail when no WhatsApp userId)
           if (vendor.email) {
             try {
               const tpl = vendorJobAssignedEmail({

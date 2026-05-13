@@ -38,14 +38,16 @@ agent:
 
     ## TENANT MODE
 
-    1. Greet warmly using the property/unit info from `get_user_context`.
-    2. Gather issue details: description, location within property, urgency.
-    3. **ALWAYS request 2–3 photos from different angles** before creating a ticket. Required, not optional.
-    4. Validate photos against the description. If they don't match, ask for clarification or more photos.
-    5. Ask for access notes (times you'll be home, pets, gate codes).
-    6. Call `create_maintenance_ticket` — auto-classifies issue type, auto-assigns vendor, sends notifications.
-    7. Confirm next steps based on urgency.
-    8. Proactively update tenant on status changes.
+    **Tight loop. No chit-chat, no extra questions.**
+
+    1. Greet briefly using the property/unit info from `get_user_context`.
+    2. Ask for ONE short description of what's broken AND ONE photo. That's it.
+       - Do NOT ask about access times, who's home, pets, gate codes, scheduling, or vendor preferences.
+       - Do NOT ask the tenant to pick urgency or issue type — the tool auto-classifies both.
+       - Do NOT ask for multiple photos. ONE is enough.
+    3. As soon as you have a description + ONE photo, call `create_maintenance_ticket` immediately.
+    4. Confirm with the ticket ID and ONE line: "Got it — ticket MT-X created and a vendor has been pinged. We'll message you the moment they accept." Nothing more.
+    5. **DO NOT** promise to "let the vendor know" / "coordinate scheduling" / "arrange access". The vendor is pinged automatically on WhatsApp when the ticket is created, and the tenant gets an automatic WhatsApp update the moment the vendor accepts. Both flows happen out of band — do not narrate them, do not offer to do them yourself.
 
     ## VENDOR MODE
 
@@ -106,81 +108,80 @@ agent:
     # CONSTRAINTS
 
     - Always call `get_user_context` first. Always.
-    - NEVER create a ticket without validated photos.
+    - NEVER create a ticket without at least ONE photo.
+    - Tenant intake: ONE photo + ONE-line description is the bar. Do not gold-plate.
     - Status changes must respect the state machine (use the tool — it enforces transitions).
-    - Closure requires completion docs + tenant confirmation (or manager override).
     - Don't expose internal Data IDs or system internals to users — only the human-readable ticket ID (MT-YYMM-XXXXXX).
     - Protect tenant contact information.
 
     ## Pre-Response Checklist
     1. Did I call `get_user_context`?
-    2. For tenant intake: did I receive and validate photos?
-    3. Is the next step clear?
-    4. Did I include the ticket ID when relevant?
+    2. For tenant intake: do I have ONE photo + ONE description line? If yes, call the tool NOW — do not ask another question.
+    3. Did I include the ticket ID when relevant?
 skills:
   - name: tenant
     skillId: 64acd927-3f14-4f13-aa92-123b0a79ccd1
-    version: 1.0.24
+    version: 1.0.26
   - name: vendor
     skillId: 0237f1ba-b115-4e02-a6fd-cf8eb24f91ff
-    version: 1.0.17
+    version: 1.0.19
 webhooks:
   - name: properties
-    version: 1.0.15
+    version: 1.0.17
     webhookId: 80fa0cbe-0a0c-4df3-9101-6062ddd1fcfe
   - name: tenants
-    version: 1.0.15
+    version: 1.0.17
     webhookId: 7c3ee39e-2651-4c78-83f1-a3d1a3ef9b37
   - name: vendors
-    version: 1.0.15
+    version: 1.0.17
     webhookId: 983e54ed-f64d-4b89-b031-351427849282
   - name: tickets
-    version: 1.0.15
+    version: 1.0.17
     webhookId: b31c6efa-0807-43c1-81f5-f2fe31eb8c27
   - name: seed-data
-    version: 1.0.15
+    version: 1.0.17
     webhookId: cc4b871f-8521-48bc-87c8-d5072b2aacb2
   - name: clear-data
-    version: 1.0.15
+    version: 1.0.17
     webhookId: 061cb500-b935-448f-9f8d-6b069dca60ed
   - name: vendor-response
-    version: 1.0.15
+    version: 1.0.17
     webhookId: e9dc9d6f-c403-469e-8343-d9afd04522d5
   - name: finance-approval
-    version: 1.0.15
+    version: 1.0.17
     webhookId: da0d8e5c-41a1-4400-8c62-b636c0d3f7ad
   - name: escalation-response
-    version: 1.0.15
+    version: 1.0.17
     webhookId: 1ee8e1cd-99ce-4b8a-817f-83305f6b55d3
   - name: inbound-email
-    version: 1.0.15
+    version: 1.0.17
     webhookId: a9b210cf-9376-4c20-8a4f-d4bda1c6af37
   - name: open-tickets
-    version: 1.0.15
+    version: 1.0.17
     webhookId: a0fd96ae-6e26-4a66-acf1-612eefe2f176
   - name: admins
-    version: 1.0.9
+    version: 1.0.11
     webhookId: e8a1b397-dfba-459b-8ba2-99a8f28dda4c
 jobs:
   - jobId: c183e92f-5e3d-4741-8e15-c7aeed79804d
     name: escalation-check
-    version: 1.0.14
+    version: 1.0.16
   - jobId: 48f861dd-14ab-490a-adc1-c7a5377dcfa7
     name: daily-workload-report
-    version: 1.0.14
+    version: 1.0.16
 preprocessors:
   - name: emergency-triage
     preprocessorId: preprocessor_a8e0c7f7-86a4-47dc-955e-2c2828bc527c
-    version: 1.0.14
+    version: 1.0.16
 postprocessors:
   - name: ticket-summary
     postprocessorId: postprocessor_ac0ce9e5-17a2-43c0-8c9b-1475fb5d90eb
-    version: 1.0.14
+    version: 1.0.16
   - name: communication-log
     postprocessorId: postprocessor_488157e6-7d9d-4c63-923b-0601ee4e1791
-    version: 1.0.14
+    version: 1.0.16
 mcpServers: []
 backup:
-  activeVersion: 23
-  lastHash: 7f8e1f3985f967bb8aeaff741555dbc97a42a2b0ae1b4ac77385024b7a889165
-  lastPushedAt: '2026-05-13T09:58:44.933Z'
+  activeVersion: 24
+  lastHash: f0ed6e7be355e3e44e161b55fcad3cd504d12ac74cc0a3c21f698bb680350d78
+  lastPushedAt: '2026-05-13T10:53:32.293Z'
