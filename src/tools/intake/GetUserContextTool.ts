@@ -247,6 +247,17 @@ export class GetUserContextTool implements LuaTool {
       if (Array.isArray(profile?.mobileNumbers)) profilePhones.push(...profile.mobileNumbers);
       if (Array.isArray(profile?.phones)) profilePhones.push(...profile.phones);
 
+      // TEST_PROFILE_PHONE simulates a verified channel (WhatsApp/SMS) in
+      // `lua chat` — it populates profilePhones BEFORE the channelVerified
+      // check, so the identity-lock branch is exercisable from the CLI.
+      // Distinct from TEST_USER_PHONE, which only adds to the unverified
+      // candidate list (web-playground simulation).
+      const testProfilePhoneRaw = env('TEST_PROFILE_PHONE');
+      if (testProfilePhoneRaw && profilePhones.length === 0) {
+        const split = String(testProfilePhoneRaw).split(',').map((p) => p.trim()).filter(Boolean);
+        profilePhones.push(...split);
+      }
+
       const hasRealProfilePhone = profilePhones.length > 0;
       const hasRealProfileEmail = !!(profile?.email || user?.email);
       const testPhone = !hasRealProfilePhone ? env('TEST_USER_PHONE') : null;
@@ -255,14 +266,37 @@ export class GetUserContextTool implements LuaTool {
         ? String(testPhone).split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      const phoneCandidates = collectPhones(input.phone, ...profilePhones, ...testPhones);
+      // IDENTITY LOCK — when the channel has already verified the caller
+      // (WhatsApp/SMS deliver the sender's real phone in _luaProfile.phone),
+      // a user-typed phone/email must NEVER be used to look up a different
+      // identity. Otherwise anyone on WhatsApp could impersonate another
+      // tenant by typing their number. Chat-provided identifiers are only
+      // honored on unverified channels (web playground / widget without a
+      // profile phone).
+      const channelVerified = hasRealProfilePhone || hasRealProfileEmail;
+      const inputPhoneForLookup = channelVerified ? undefined : input.phone;
+      const inputEmailForLookup = channelVerified ? undefined : input.email;
+
+      const phoneCandidates = collectPhones(inputPhoneForLookup, ...profilePhones, ...testPhones);
       const emailCandidates = collectEmails(
-        input.email,
+        inputEmailForLookup,
         profile?.email,
         user?.email,
         testEmail || undefined
       );
-      const inputProvidedIdentifier = !!(input.phone || input.email);
+
+      // Detect a mismatch between what the user claimed and the channel-verified
+      // identity, so we can surface guidance to the LLM (don't switch identity,
+      // acknowledge politely).
+      const claimedPhoneMismatch =
+        channelVerified && !!input.phone && !anyPhoneMatch(profilePhones, [input.phone]);
+      const profileEmailNorm = normalizeEmail(profile?.email ?? user?.email ?? '');
+      const claimedEmailMismatch =
+        channelVerified && !!input.email && normalizeEmail(input.email) !== profileEmailNorm;
+      const identityLockNote =
+        claimedPhoneMismatch || claimedEmailMismatch
+          ? ` NOTE: caller typed ${claimedPhoneMismatch ? `phone "${input.phone}"` : ''}${claimedPhoneMismatch && claimedEmailMismatch ? ' and ' : ''}${claimedEmailMismatch ? `email "${input.email}"` : ''} which does NOT match the verified channel identity. DO NOT switch identity. This channel is locked to the WhatsApp/SMS number on file — politely acknowledge if needed but continue serving the verified caller.`
+          : '';
 
       function cacheStillMatches(entryData: any): boolean {
         if (phoneCandidates.length === 0 && emailCandidates.length === 0) return true;
@@ -298,7 +332,7 @@ export class GetUserContextTool implements LuaTool {
               success: true,
               userType: user.userType as UserType,
               identity: summary,
-              message: buildMessage(summary, user.userType as ContactRole)
+              message: buildMessage(summary, user.userType as ContactRole) + identityLockNote
             };
           }
         } catch {
@@ -400,7 +434,7 @@ export class GetUserContextTool implements LuaTool {
           success: true,
           userType: activeRole as UserType,
           identity: summary,
-          message: buildMessage(summary, activeRole)
+          message: buildMessage(summary, activeRole) + identityLockNote
         };
       }
 
