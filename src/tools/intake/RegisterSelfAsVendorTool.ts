@@ -97,17 +97,47 @@ export class RegisterSelfAsVendorTool implements LuaTool {
         input.email ?? profile?.email ?? user?.email ?? testEmail ?? ''
       );
 
-      if (phones.length === 0 && !email) {
+      // [IDENTITY-LOCK-v2] Allow user.id-only registration when the channel
+      // doesn't propagate _luaProfile.phone/email. user.id is stable per
+      // channel-sender, so GUC's userId-first lookup will re-identify them.
+      // To revert: require phones.length > 0 || email again.
+      if (phones.length === 0 && !email && !userId) {
         return {
           success: false,
           error: 'no_identifier',
-          message: "Can't register without at least a phone or email on the channel."
+          message: "Can't register without a phone, email, or platform identity."
         };
       }
 
-      // ----- Dedupe by phone (brute-scan fallback per known $in-on-array bug) -----
+      // ----- Dedupe -----
       let existing: { id: string; data: any } | null = null;
-      if (phones.length > 0) {
+
+      // [IDENTITY-LOCK-v2] userId-first dedup so re-onboarding merges into
+      // the original contact. To revert: drop this block.
+      if (userId) {
+        try {
+          const r: any = await Contacts.get({ userId }, 1, 5);
+          const first = r?.data?.[0];
+          if (first) existing = { id: first.id, data: first.data ?? {} };
+        } catch {
+          /* fall through */
+        }
+        if (!existing) {
+          try {
+            const all: any = await Contacts.get({}, 1, 1000);
+            for (const entry of all?.data ?? []) {
+              if (entry?.data?.userId === userId) {
+                existing = { id: entry.id, data: entry.data ?? {} };
+                break;
+              }
+            }
+          } catch {
+            /* noop */
+          }
+        }
+      }
+
+      if (!existing && phones.length > 0) {
         try {
           const r: any = await Contacts.get({ phones: { $in: phones } }, 1, 5);
           const first = r?.data?.[0];

@@ -11,6 +11,9 @@ import adminsWebhook from './webhooks/admin/admins.webhook.js';
 import ticketsAdminWebhook from './webhooks/admin/tickets.webhook.js';
 import seedDataWebhook from './webhooks/admin/seed-data.webhook.js';
 import clearDataWebhook from './webhooks/admin/clear-data.webhook.js';
+// [IDENTITY-LOCK-v2] one-shot cleanup webhook — remove this import + the
+// `clearUseridWebhook` entry from the webhooks array below to revert.
+import clearUseridWebhook from './webhooks/admin/clear-userid.webhook.js';
 
 // External integration webhooks
 import vendorResponseWebhook from './webhooks/vendor-response.webhook.js';
@@ -214,6 +217,7 @@ const agent = new LuaAgent({
     ticketsAdminWebhook,
     seedDataWebhook,
     clearDataWebhook,
+    clearUseridWebhook, // [IDENTITY-LOCK-v2]
     vendorResponseWebhook,
     financeApprovalWebhook,
     escalationResponseWebhook,

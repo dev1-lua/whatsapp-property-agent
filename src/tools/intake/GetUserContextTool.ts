@@ -1,8 +1,8 @@
 /**
  * get_user_context — the single most important tool.
  *
- * Resolves the caller against the unified `contacts` collection (phone-first
- * lookup). One row per human, role-tagged via `roles[]`. Returns a userType
+ * Resolves the caller against the unified `contacts` collection.
+ * One row per human, role-tagged via `roles[]`. Returns a userType
  * derived from the roles, honoring an optional `viewAs` hint from the HTML
  * persona-pill dropdown so a multi-role contact (e.g. admin + tenant) can be
  * disambiguated by the UI.
@@ -12,6 +12,31 @@
  * rents a unit" demo scenario — they want stats, not a maintenance form).
  *
  * Full spec: docs/info/07-IDENTITY-RESOLUTION.md (pre-rewrite — see BUILD-PROGRESS day 2 plan).
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ *  [IDENTITY-LOCK-v2] (2026-05-14) — userId-first lookup + mismatch guard
+ * ─────────────────────────────────────────────────────────────────────────
+ *  WHY: WhatsApp demo channels sometimes don't propagate `_luaProfile.phone`,
+ *  so the `channelVerified` gate from v1 (email/phone-based) didn't fire and
+ *  users could impersonate seeded contacts by typing their phone in chat.
+ *
+ *  WHAT CHANGED (revert by removing every block tagged `[IDENTITY-LOCK-v2]`):
+ *    1. findContact() takes `userId` and tries it FIRST. The Lua platform's
+ *       user.id is stable per channel-sender (WhatsApp account, web session),
+ *       so once any contact row has userId stamped on it, that row is the
+ *       only one ever resolved for that user — regardless of typed phone.
+ *    2. After fallback phone/email match, if the matched contact has a
+ *       DIFFERENT stored userId than the current caller's user.id, the match
+ *       is REJECTED and we return unregistered with a strong note telling
+ *       the LLM to register this caller fresh as themselves.
+ *    3. cacheStillMatches() now treats userId equality as sufficient — the
+ *       cache stays valid even when the user types a foreign phone.
+ *    4. RegisterSelfAsTenant/Vendor now allow user.id-only registration when
+ *       the channel doesn't propagate phone/email.
+ *
+ *  TO REVERT: `grep -r "IDENTITY-LOCK-v2" src/` and remove each marked block,
+ *  restoring the prior phone-first lookup with no mismatch detection.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import { LuaTool, User, env } from 'lua-cli';
@@ -166,20 +191,44 @@ function buildMessage(s: IdentitySummary, activeRole: ContactRole): string {
 }
 
 /**
- * Single phone-first lookup against the contacts collection. Tries $in match
- * on phones[] first, brute-scan fallback (the `$in` array-field query has
- * proven unreliable on this platform — same fix as RegisterSelfAsTenant).
- * Email fallback last.
+ * Lookup against the contacts collection.
+ *
+ * [IDENTITY-LOCK-v2] Order: userId → phone → email. The platform user.id is
+ * the strongest identifier we have (stable per channel-sender, set by Lua at
+ * channel registration). To revert: remove the userId block below and drop
+ * the userId parameter from the signature; restore phone-first ordering.
  */
 async function findContact(
   phones: string[],
-  emails: string[]
-): Promise<{ id: string; data: any } | null> {
+  emails: string[],
+  userId?: string
+): Promise<{ id: string; data: any; matchedBy: 'userId' | 'phone' | 'email' } | null> {
+  // [IDENTITY-LOCK-v2] userId-first lookup
+  if (userId) {
+    try {
+      const res: any = await Contacts.get({ userId }, 1, 5);
+      const first = res?.data?.[0];
+      if (first) return { id: first.id, data: first.data ?? {}, matchedBy: 'userId' };
+    } catch {
+      /* fall through */
+    }
+    try {
+      const all: any = await Contacts.get({}, 1, 1000);
+      for (const entry of all?.data ?? []) {
+        if (entry?.data?.userId === userId) {
+          return { id: entry.id, data: entry.data ?? {}, matchedBy: 'userId' };
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
   if (phones.length > 0) {
     try {
       const res: any = await Contacts.get({ phones: { $in: phones } }, 1, 5);
       const first = res?.data?.[0];
-      if (first) return { id: first.id, data: first.data ?? {} };
+      if (first) return { id: first.id, data: first.data ?? {}, matchedBy: 'phone' };
     } catch {
       /* fall through */
     }
@@ -189,7 +238,7 @@ async function findContact(
       for (const entry of all?.data ?? []) {
         const stored: string[] = Array.isArray(entry?.data?.phones) ? entry.data.phones : [];
         if (anyPhoneMatch(stored, phones)) {
-          return { id: entry.id, data: entry.data ?? {} };
+          return { id: entry.id, data: entry.data ?? {}, matchedBy: 'phone' };
         }
       }
     } catch {
@@ -201,7 +250,7 @@ async function findContact(
     try {
       const res: any = await Contacts.get({ email: e }, 1, 5);
       const first = res?.data?.[0];
-      if (first) return { id: first.id, data: first.data ?? {} };
+      if (first) return { id: first.id, data: first.data ?? {}, matchedBy: 'email' };
     } catch {
       /* continue */
     }
@@ -266,16 +315,22 @@ export class GetUserContextTool implements LuaTool {
         ? String(testPhone).split(',').map((p) => p.trim()).filter(Boolean)
         : [];
 
-      // IDENTITY LOCK — when the channel has already verified the caller
-      // (WhatsApp/SMS deliver the sender's real phone in _luaProfile.phone),
-      // a user-typed phone/email must NEVER be used to look up a different
-      // identity. Otherwise anyone on WhatsApp could impersonate another
-      // tenant by typing their number. Chat-provided identifiers are only
-      // honored on unverified channels (web playground / widget without a
-      // profile phone).
+      // [IDENTITY-LOCK-v2] Chat-typed phone/email are NEVER used for identity
+      // lookup — not even on "unverified" channels. They might come from a
+      // spoof attempt ("I'm Laura, my phone is 35386..."). Identity is
+      // resolved EXCLUSIVELY from platform-trusted sources:
+      //   - user.id (always present, stable per channel-sender)
+      //   - _luaProfile.phone / .email (when the channel propagates them)
+      //   - TEST_PROFILE_PHONE / TEST_USER_PHONE (test overrides)
+      // Returning users on unverified channels are recognized by user.id.
+      // A user typing an existing contact's phone gets NO identity match;
+      // the LLM onboards them fresh as themselves.
+      // Variable kept for the claim-mismatch detection below and for the
+      // existing identityLockNote messaging. To revert: restore
+      //   const inputPhoneForLookup = channelVerified ? undefined : input.phone;
       const channelVerified = hasRealProfilePhone || hasRealProfileEmail;
-      const inputPhoneForLookup = channelVerified ? undefined : input.phone;
-      const inputEmailForLookup = channelVerified ? undefined : input.email;
+      const inputPhoneForLookup = undefined;
+      const inputEmailForLookup = undefined;
 
       const phoneCandidates = collectPhones(inputPhoneForLookup, ...profilePhones, ...testPhones);
       const emailCandidates = collectEmails(
@@ -285,21 +340,43 @@ export class GetUserContextTool implements LuaTool {
         testEmail || undefined
       );
 
-      // Detect a mismatch between what the user claimed and the channel-verified
-      // identity, so we can surface guidance to the LLM (don't switch identity,
-      // acknowledge politely).
+      // [IDENTITY-LOCK-v2] Mismatch detection — fires whenever the chat text
+      // contained a phone/email that does NOT match the channel-verified one
+      // (including when the channel didn't propagate any verified identifier
+      // at all — in that case any typed phone is automatically a mismatch).
+      // Used to append a lock note to the tool result so the LLM doesn't
+      // switch identity.
+      // To revert: re-add the `channelVerified &&` prefix on both lines.
       const claimedPhoneMismatch =
-        channelVerified && !!input.phone && !anyPhoneMatch(profilePhones, [input.phone]);
+        !!input.phone && !anyPhoneMatch(profilePhones, [input.phone]);
       const profileEmailNorm = normalizeEmail(profile?.email ?? user?.email ?? '');
       const claimedEmailMismatch =
-        channelVerified && !!input.email && normalizeEmail(input.email) !== profileEmailNorm;
+        !!input.email && normalizeEmail(input.email) !== profileEmailNorm;
       const identityLockNote =
         claimedPhoneMismatch || claimedEmailMismatch
-          ? ` NOTE: caller typed ${claimedPhoneMismatch ? `phone "${input.phone}"` : ''}${claimedPhoneMismatch && claimedEmailMismatch ? ' and ' : ''}${claimedEmailMismatch ? `email "${input.email}"` : ''} which does NOT match the verified channel identity. DO NOT switch identity. This channel is locked to the WhatsApp/SMS number on file — politely acknowledge if needed but continue serving the verified caller.`
+          ? ` NOTE: caller typed ${claimedPhoneMismatch ? `phone "${input.phone}"` : ''}${claimedPhoneMismatch && claimedEmailMismatch ? ' and ' : ''}${claimedEmailMismatch ? `email "${input.email}"` : ''} which is NOT this caller's channel-verified identity. DO NOT switch identity. DO NOT call register tools with the typed identifier. The channel session is locked to the platform user.id on file — politely acknowledge if needed but continue serving this caller as themselves.`
           : '';
 
       function cacheStillMatches(entryData: any): boolean {
-        if (phoneCandidates.length === 0 && emailCandidates.length === 0) return true;
+        // [IDENTITY-LOCK-v2] Cache validity rules:
+        //   1. userId match → always valid (strongest signal)
+        //   2. userId mismatch (stored != current) → invalid
+        //   3. No userId on stored contact, but channel-verified phone/email
+        //      overlap with stored → valid (returning user case)
+        //   4. No userId, no overlap → invalid (force full re-resolve)
+        // The previous behavior "no candidates → cache OK" let a stale cache
+        // serve the wrong user when the channel didn't propagate identifiers.
+        // To revert: restore `return true` for the empty-candidates branch.
+        const storedUserId = entryData?.userId;
+        if (userId && storedUserId === userId) return true;
+        if (userId && storedUserId && storedUserId !== userId) return false;
+
+        // No definitive userId verdict — fall back to phone/email overlap.
+        // If candidates are empty AND there's no userId on the contact, the
+        // cache has no way to be confirmed → invalidate so full-resolve runs.
+        if (phoneCandidates.length === 0 && emailCandidates.length === 0) {
+          return false;
+        }
         const storedPhones: string[] = Array.isArray(entryData?.phones) ? entryData.phones : [];
         const storedEmail: string = normalizeEmail(entryData?.email ?? '');
         const phoneOverlap = anyPhoneMatch(storedPhones, phoneCandidates);
@@ -358,7 +435,10 @@ export class GetUserContextTool implements LuaTool {
       // ============================================================
       // FULL RESOLVE
       // ============================================================
-      if (phoneCandidates.length === 0 && emailCandidates.length === 0) {
+      // [IDENTITY-LOCK-v2] No longer short-circuit when phones+emails are empty
+      // — findContact() can still resolve via userId. Only bail if we have no
+      // identifiers AT ALL (no userId, no phone, no email).
+      if (phoneCandidates.length === 0 && emailCandidates.length === 0 && !userId) {
         try {
           await user.update?.({ userType: 'unregistered' });
         } catch {
@@ -371,11 +451,42 @@ export class GetUserContextTool implements LuaTool {
           capturedPhone: null,
           capturedEmail: null,
           message:
-            'No phone or email available for this user. Ask politely for a contact number or email so we can register them.'
+            'No phone, email, or platform identity available for this user. Ask politely for a contact number or email so we can register them.'
         };
       }
 
-      const contact = await findContact(phoneCandidates, emailCandidates);
+      const contact = await findContact(phoneCandidates, emailCandidates, userId);
+
+      // [IDENTITY-LOCK-v2] Mismatch guard — phone/email matched a contact that
+      // is already owned by a DIFFERENT platform user. This is a cross-account
+      // attempt (spoofing, typo, or wrong number). Refuse the match: return
+      // unregistered with a strong note so the LLM collects this caller's OWN
+      // info and registers them fresh as themselves. Seeded contacts that have
+      // no stored userId are permissive (the first real channel-user to match
+      // them claims them — see PROJECT memory for design rationale).
+      // To revert: remove this entire block.
+      if (
+        contact &&
+        contact.matchedBy !== 'userId' &&
+        userId &&
+        contact.data?.userId &&
+        contact.data.userId !== userId
+      ) {
+        try {
+          await user.update?.({ userType: 'unregistered' });
+        } catch {
+          /* noop */
+        }
+        return {
+          success: true,
+          userType: 'unregistered' as const,
+          identity: null,
+          capturedPhone: phoneCandidates[0] ?? null,
+          capturedEmail: emailCandidates[0] ?? null,
+          message:
+            "The phone/email provided belongs to a DIFFERENT caller's account. DO NOT address this user by that contact's name. Collect this caller's OWN name and property (or company + specialty) and register them fresh as themselves — their channel identity (user.id) is the source of truth, not the typed phone."
+        };
+      }
 
       if (contact) {
         const roles: ContactRole[] = Array.isArray(contact.data?.roles) ? contact.data.roles : [];
@@ -396,7 +507,11 @@ export class GetUserContextTool implements LuaTool {
         const summary = summarize(contact, activeRole);
 
         // Backfill userId on the contact so outbound User.get(userId).send works later
-        if (userId && contact.data?.userId !== userId) {
+        // [IDENTITY-LOCK-v2] Backfill only when the contact has no existing userId
+        // (e.g. seeded contacts). Never overwrite an existing userId — that would
+        // let a later caller hijack ownership. The mismatch guard above already
+        // rejected cases where contact.userId is set and differs from current.
+        if (userId && !contact.data?.userId) {
           try {
             await Contacts.update(contact.id, { ...contact.data, userId, updatedAt: new Date().toISOString() });
           } catch {

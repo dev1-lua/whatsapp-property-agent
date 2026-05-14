@@ -121,67 +121,70 @@ agent:
 skills:
   - name: tenant
     skillId: 64acd927-3f14-4f13-aa92-123b0a79ccd1
-    version: 1.0.28
+    version: 1.0.33
   - name: vendor
     skillId: 0237f1ba-b115-4e02-a6fd-cf8eb24f91ff
-    version: 1.0.21
+    version: 1.0.26
 webhooks:
   - name: properties
-    version: 1.0.19
+    version: 1.0.24
     webhookId: 80fa0cbe-0a0c-4df3-9101-6062ddd1fcfe
   - name: tenants
-    version: 1.0.19
+    version: 1.0.24
     webhookId: 7c3ee39e-2651-4c78-83f1-a3d1a3ef9b37
   - name: vendors
-    version: 1.0.19
+    version: 1.0.24
     webhookId: 983e54ed-f64d-4b89-b031-351427849282
   - name: tickets
-    version: 1.0.19
+    version: 1.0.24
     webhookId: b31c6efa-0807-43c1-81f5-f2fe31eb8c27
   - name: seed-data
-    version: 1.0.19
+    version: 1.0.24
     webhookId: cc4b871f-8521-48bc-87c8-d5072b2aacb2
   - name: clear-data
-    version: 1.0.19
+    version: 1.0.24
     webhookId: 061cb500-b935-448f-9f8d-6b069dca60ed
   - name: vendor-response
-    version: 1.0.19
+    version: 1.0.24
     webhookId: e9dc9d6f-c403-469e-8343-d9afd04522d5
   - name: finance-approval
-    version: 1.0.19
+    version: 1.0.24
     webhookId: da0d8e5c-41a1-4400-8c62-b636c0d3f7ad
   - name: escalation-response
-    version: 1.0.19
+    version: 1.0.24
     webhookId: 1ee8e1cd-99ce-4b8a-817f-83305f6b55d3
   - name: inbound-email
-    version: 1.0.19
+    version: 1.0.24
     webhookId: a9b210cf-9376-4c20-8a4f-d4bda1c6af37
   - name: open-tickets
-    version: 1.0.19
+    version: 1.0.24
     webhookId: a0fd96ae-6e26-4a66-acf1-612eefe2f176
   - name: admins
-    version: 1.0.13
+    version: 1.0.18
     webhookId: e8a1b397-dfba-459b-8ba2-99a8f28dda4c
+  - name: clear-userid
+    version: 1.0.4
+    webhookId: c50f0996-7c21-4384-a23f-12cf4c8ffaf8
 jobs:
   - jobId: c183e92f-5e3d-4741-8e15-c7aeed79804d
     name: escalation-check
-    version: 1.0.18
+    version: 1.0.23
   - jobId: 48f861dd-14ab-490a-adc1-c7a5377dcfa7
     name: daily-workload-report
-    version: 1.0.18
+    version: 1.0.23
 preprocessors:
   - name: emergency-triage
     preprocessorId: preprocessor_a8e0c7f7-86a4-47dc-955e-2c2828bc527c
-    version: 1.0.18
+    version: 1.0.23
 postprocessors:
   - name: ticket-summary
     postprocessorId: postprocessor_ac0ce9e5-17a2-43c0-8c9b-1475fb5d90eb
-    version: 1.0.18
+    version: 1.0.23
   - name: communication-log
     postprocessorId: postprocessor_488157e6-7d9d-4c63-923b-0601ee4e1791
-    version: 1.0.18
+    version: 1.0.23
 mcpServers: []
 backup:
-  activeVersion: 26
-  lastHash: 3531e6155949a324233597981fb8da7dff219d3a31af6550e905e34eb12f4d29
-  lastPushedAt: '2026-05-14T07:53:30.388Z'
+  activeVersion: 30
+  lastHash: 1f50dbd1a1ef3cf33703bbad798d9ac9650a9dc3c567cbfc73b8d2d197a0f9e6
+  lastPushedAt: '2026-05-14T12:27:42.517Z'
