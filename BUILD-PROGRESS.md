@@ -18,14 +18,23 @@ Live demo prep with Mahmoud as a real vendor (WhatsApp user.id `25b1875c-…`, +
 
 ### 2. Outbound vendor ping — FIX IMPLEMENTED, NOT YET VERIFIED ⏳
 **Symptom:** ticket assigned to Mahmoud → he never receives the "New job assigned" push; only sees jobs when he pulls ("check assignments").
-**Root cause (NOT the profile phone — in-thread replies to him deliver fine):** the SDK's `User.get(vendorUserId).send()` → `sendMessage()` → `getAdminUser()` → POSTs to the **agent owner's** conversation, ignoring the target userId. Proactive cross-user pings land on the admin, never the vendor. (Explains "it used to work" — when the owner tested the vendor side, the ping arrived in the owner's own chat.)
-**Fix `[VENDOR-PING-FIX2-2026-06-08]`** in `src/tools/intake/CreateMaintenanceTicketTool.ts`: bypass `send()`; POST directly to the vendor's conversation — `POST {LUA_API_URL}/admin/agents/{AGENT_ID}/conversations/{vendorUserId}` with `{messages}` via `fetch` + `env('LUA_API_KEY')` (proven pattern from `ResetMyIdentityTool`; the SDK's internal `httpPost` is NOT reachable at runtime — first attempt died with `u.httpPost is not a function`).
-**Status:** pushed as tenant **v1.0.42**, **NOT deployed** — production still runs **v1.0.40** (the failed httpPost attempt). TODO: deploy v1.0.42 → one test ticket (heating/plumbing/structural, fresh unit) → confirm `[VENDOR-PING] direct POST {ok:true}` AND Mahmoud receives it. Same bug affects all cross-user sends (`RequestTenantConfirmation`, `ClaimJob`, `daily-report`).
+
+**Real root cause — SPLIT IDENTITY (confirmed via the `diag-profile` verifier):** Mahmoud has **two platform users for the same WhatsApp number**:
+- `25b1875c-…` — his **live WhatsApp session** (what he messages from, what got stamped on the vendor row). Profile `mobileNumbers: []` (EMPTY), email `201144444361@s.whatsapp.net`.
+- `ecc1aefd-…` ("Mahmoud Saleh") — his **real profile**, `mobileNumbers: ["201144444361"]` (the number IS captured here).
+
+The two were never linked. Proactive sends targeted the phone-less session (`25b1875c`) → the conversations endpoint can't address a phone-less profile → `400 "No last interaction found"`. In-thread replies always worked (replying to a live message needs no stored number), which is why pull/recognition looked fine. Unified-identity users (dev/you, +91) work because their session == profile == has the number.
+
+**Investigation note (false leads, for the record):** looked like SDK `send()` routing to the agent owner (npm source said so, but the runtime build differs — `httpPost` isn't reachable, so that read was misleading); looked like the WhatsApp 24h window (disproved — failed 41 min after an inbound msg); looked like "platform doesn't capture +20 numbers" (DISPROVED by the verifier — the +20 number was captured, just on the other user). The `diag-profile` webhook (`User.get` by userId AND by phone) is what pinpointed the split.
+
+**Fix `[VENDOR-PING-FIX3-2026-06-08]`** in `CreateMaintenanceTicketTool.ts`: for the outbound ping, resolve the vendor's phone → `User.get({ phone })` → the **profile user that actually holds the number** (`ecc1aefd`) and POST to *that* conversation (via `fetch` + `env('LUA_API_KEY')`; the SDK's internal `httpPost` isn't reachable at runtime). Falls back to the stamped `vendor.userId` if the phone doesn't resolve to a phone-bearing profile (so +91/unified vendors are unaffected — they resolve to their own id).
+
+**Status: RESOLVED & VERIFIED (tenant v1.0.43).** Confirmed live: `[VENDOR-PING] target {pingUserId: ecc1aefd}` → `direct POST {status:201}` → **Mahmoud received "New job assigned" on WhatsApp.** (Earlier inbound recovery + the userId stamp on the vendor row remain in place for recognition.)
 
 ### Open / escalated to platform eng
-- Why does WhatsApp capture `mobileNumbers` for some senders (+91…) but not others (Mahmoud +20…)? Suspect the `link-me-to:<agentId>` sandbox quick-test flow skips number capture.
-- SDK: `User.get(userId).send()` should target that user (per docs) but routes to the agent owner — reported.
-- Temporary `[VENDOR-PING]` / `[WA-PHONE-RECOVERY]` console diagnostics still in place — strip once the push is confirmed.
+- This fix is a **workaround**. Underlying platform bug: the sandbox `link-me-to:<agentId>` flow creates a fresh phone-less session user instead of matching the existing profile by number → split identity. Real fix = platform merges/links `25b1875c` → `ecc1aefd` (or matches on connect). Then the workaround can be removed.
+- Same split would affect any cross-user send (`RequestTenantConfirmation`, `ClaimJob`, `daily-report`) for a split-identity user — apply the same phone→profile-user resolution if needed.
+- `diag-profile` webhook (read-only) left in repo as a vendor pre-flight checker. `[VENDOR-PING]` / `[WA-PHONE-RECOVERY]` console diagnostics intentionally kept for now.
 
 ## Day 4 — IDENTITY-LOCK-v2 (2026-05-14)
 
