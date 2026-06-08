@@ -10,7 +10,7 @@
  * Spec: docs/info/03-TOOLS.md (Intake section)
  */
 
-import { LuaTool, User } from 'lua-cli';
+import { LuaTool, User, env } from 'lua-cli';
 import { z } from 'zod';
 import { Tickets, Vendors } from '../../services/data.js';
 import {
@@ -298,8 +298,15 @@ export class CreateMaintenanceTicketTool implements LuaTool {
 
           // WhatsApp-ping the vendor (primary channel)
           if (vendor.userId) {
+            // [VENDOR-PING-DIAG-2026-06-08] temporary instrumentation — remove after diagnosis
+            console.log('[VENDOR-PING] attempt', JSON.stringify({ ticketId, vendorUserId: vendor.userId }));
             try {
               const vendorUser: any = await User.get(vendor.userId);
+              console.log('[VENDOR-PING] User.get', JSON.stringify({
+                present: !!vendorUser,
+                profileMobileNumbers: vendorUser?._luaProfile?.mobileNumbers ?? null,
+                stashedWaPhone: (vendorUser as any)?.data?._waChannelPhone ?? null
+              }));
               if (vendorUser) {
                 const pingText =
                   `New job assigned: ${ticketId}\n` +
@@ -312,7 +319,27 @@ export class CreateMaintenanceTicketTool implements LuaTool {
                 if (firstImage) {
                   msgs.push({ type: 'text', text: `Photo: ${firstImage}` });
                 }
-                await vendorUser.send(msgs);
+                // [VENDOR-PING-FIX2-2026-06-08] vendorUser.send() POSTs to the agent
+                // OWNER's conversation (SDK sendMessage → getAdminUser().uid), so the
+                // vendor never receives it. Make the SAME admin API call ourselves but
+                // target THIS vendor's conversation id, via fetch + env creds (the proven
+                // pattern from ResetMyIdentityTool — internal httpPost isn't reachable at
+                // runtime). Revert to vendorUser.send(msgs) once the SDK's sendMessage is
+                // fixed to honor the instance's userId.
+                const apiKey = env('LUA_API_KEY') ?? '';
+                const apiBase = env('LUA_API_URL') || 'https://api.heylua.ai';
+                const agentIdEnv = env('AGENT_ID') ?? '';
+                const convUrl = `${apiBase}/admin/agents/${encodeURIComponent(agentIdEnv)}/conversations/${encodeURIComponent(vendor.userId)}`;
+                const pingResp = await fetch(convUrl, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ messages: msgs })
+                });
+                const pingErrBody = pingResp.ok ? '' : await pingResp.text().catch(() => '');
+                console.log('[VENDOR-PING] direct POST', JSON.stringify({ status: pingResp.status, ok: pingResp.ok, err: pingErrBody.slice(0, 200) }));
+                if (!pingResp.ok) {
+                  throw new Error(`conversation POST ${pingResp.status}`);
+                }
                 await logCommunication({
                   ticketId,
                   direction: 'Outbound',
@@ -326,8 +353,8 @@ export class CreateMaintenanceTicketTool implements LuaTool {
                   delivery: 'sent'
                 });
               }
-            } catch (err) {
-              console.error('Vendor WhatsApp ping failed (non-fatal):', err);
+            } catch (err: any) {
+              console.log('[VENDOR-PING] FAILED (non-fatal):', JSON.stringify({ message: err?.message ?? String(err), name: err?.name, stack: (err?.stack ?? '').slice(0, 400) }));
             }
           }
 

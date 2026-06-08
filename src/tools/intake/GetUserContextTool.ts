@@ -296,6 +296,19 @@ export class GetUserContextTool implements LuaTool {
       if (Array.isArray(profile?.mobileNumbers)) profilePhones.push(...profile.mobileNumbers);
       if (Array.isArray(profile?.phones)) profilePhones.push(...profile.phones);
 
+      // [WA-PHONE-RECOVERY-2026-06-08] On this agent's WhatsApp channel,
+      // _luaProfile.mobileNumbers arrives EMPTY (the platform doesn't surface the
+      // sender's number into the profile). The emergency-triage preprocessor
+      // recovers it from the raw channel webhook payload (Meta's verified
+      // `messages[].from` / `contacts[].wa_id`) and stashes it as _waChannelPhone.
+      // It is a CHANNEL-propagated identifier — NOT user-typed — so it belongs in
+      // profilePhones (channel-trusted), preserving the IDENTITY-LOCK-v2 boundary.
+      // To revert: remove this block + the recovery block in the preprocessor.
+      const recoveredChannelPhone = (user as any)?.data?._waChannelPhone ?? (user as any)?._waChannelPhone;
+      if (typeof recoveredChannelPhone === 'string' && recoveredChannelPhone) {
+        profilePhones.push(recoveredChannelPhone);
+      }
+
       // TEST_PROFILE_PHONE simulates a verified channel (WhatsApp/SMS) in
       // `lua chat` — it populates profilePhones BEFORE the channelVerified
       // check, so the identity-lock branch is exercisable from the CLI.
@@ -451,7 +464,7 @@ export class GetUserContextTool implements LuaTool {
           capturedPhone: null,
           capturedEmail: null,
           message:
-            'No phone, email, or platform identity available for this user. Ask politely for a contact number or email so we can register them.'
+            "No channel identity available for this caller. CLOSED DIRECTORY — politely tell them you can't identify them and ask them to contact their property manager so they can be added to the system. Do NOT ask for their name, property, phone, or email; do NOT attempt to register them."
         };
       }
 
@@ -484,7 +497,7 @@ export class GetUserContextTool implements LuaTool {
           capturedPhone: phoneCandidates[0] ?? null,
           capturedEmail: emailCandidates[0] ?? null,
           message:
-            "The phone/email provided belongs to a DIFFERENT caller's account. DO NOT address this user by that contact's name. Collect this caller's OWN name and property (or company + specialty) and register them fresh as themselves — their channel identity (user.id) is the source of truth, not the typed phone."
+            "The phone/email provided belongs to a DIFFERENT caller's account. DO NOT address this user by that contact's name. CLOSED DIRECTORY — politely tell this caller you can't find their own number on file and ask them to have their property manager add them to the system. Do NOT register them, do NOT ask for personal info."
         };
       }
 
@@ -500,7 +513,7 @@ export class GetUserContextTool implements LuaTool {
             identity: null,
             capturedPhone: phoneCandidates[0] ?? null,
             capturedEmail: emailCandidates[0] ?? null,
-            message: `Contact ${contact.data?.name ?? ''} found but has no roles set. Ask whether they're a tenant or vendor and re-register accordingly.`
+            message: `Contact ${contact.data?.name ?? ''} found but has no roles set. CLOSED DIRECTORY — ask them to contact their property manager to have their role configured. Do NOT register them or ask for personal info in chat.`
           };
         }
 
@@ -581,7 +594,7 @@ export class GetUserContextTool implements LuaTool {
         capturedPhone: phoneCandidates[0] ?? null,
         capturedEmail: emailCandidates[0] ?? null,
         message:
-          "Caller is not in the contacts directory. If their first message is intent-bearing (e.g. 'my sink is leaking' → tenant, 'I'm available for the plumbing job' → vendor), confirm the inferred role and then call `register_self_as_tenant` (or `register_self_as_vendor` once available). Otherwise greet them and ask whether they're a tenant or a vendor."
+          "Caller is not in the contacts directory. CLOSED DIRECTORY — every user must be pre-seeded by an admin. Politely tell them you can't find them on file and ask them to have their property manager add them to the system, then message you again. Do NOT ask them for name/property/phone/email in chat. Do NOT attempt to register them. End the conversation warmly after the one-line refusal."
       };
     } catch (err: any) {
       return {

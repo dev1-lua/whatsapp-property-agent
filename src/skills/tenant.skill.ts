@@ -2,8 +2,11 @@ import { LuaSkill } from 'lua-cli';
 
 // Identity (CALL FIRST, ALWAYS)
 import { GetUserContextTool } from '../tools/intake/GetUserContextTool.js';
-import { RegisterSelfAsTenantTool } from '../tools/intake/RegisterSelfAsTenantTool.js';
-import { RegisterSelfAsVendorTool } from '../tools/intake/RegisterSelfAsVendorTool.js';
+// [DB-ONLY-2026-05-18] Self-registration disabled — every user must be pre-seeded
+// by an admin via the HTML dashboard. Re-enable by uncommenting these two imports
+// + the matching entries in tools[] below + the description lines above.
+// import { RegisterSelfAsTenantTool } from '../tools/intake/RegisterSelfAsTenantTool.js';
+// import { RegisterSelfAsVendorTool } from '../tools/intake/RegisterSelfAsVendorTool.js';
 import { ResetMyIdentityTool } from '../tools/intake/ResetMyIdentityTool.js';
 
 // Intake
@@ -49,10 +52,9 @@ export const tenantSkill = new LuaSkill({
     Tools for tenants reporting maintenance issues, plus operator-side coordination of vendors and finance.
 
     **User Identification (ALWAYS call first)**
-    - get_user_context: identifies tenant vs vendor vs admin from phone/email. NO input needed.
-    - register_self_as_tenant: onboard an unregistered tenant inline (name + property/unit)
-    - register_self_as_vendor: onboard an unregistered vendor inline (companyName + specialties[])
+    - get_user_context: identifies tenant vs vendor vs admin from the channel's WhatsApp number / userId. NO input needed.
     - reset_my_identity: wipe the caller's cached identity + chat transcript when they say "I'm new" / "forget me" / "reset" / "start over"
+    - Self-registration is DISABLED. If userType is 'unregistered', tell the caller to ask their property manager to add them. Do NOT collect name/property/phone/email in chat.
 
     **Tenant intake**
     - create_maintenance_ticket — create ticket; auto-classifies + auto-assigns vendor
@@ -97,8 +99,9 @@ export const tenantSkill = new LuaSkill({
   `,
   tools: [
     new GetUserContextTool(),
-    new RegisterSelfAsTenantTool(),
-    new RegisterSelfAsVendorTool(),
+    // [DB-ONLY-2026-05-18] Self-registration disabled. Uncomment to re-enable.
+    // new RegisterSelfAsTenantTool(),
+    // new RegisterSelfAsVendorTool(),
     new ResetMyIdentityTool(),
     new CreateMaintenanceTicketTool(),
     new UploadIssueImagesTool(),

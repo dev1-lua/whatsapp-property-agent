@@ -15,8 +15,39 @@
  */
 
 import { LuaWebhook } from 'lua-cli';
-import { Tenants, Properties } from '../../services/data.js';
+import { Tenants, Properties, Tickets } from '../../services/data.js';
 import { normalizeEmail, collectPhones } from '../../utils/identity.js';
+
+async function deleteTicketsForTenant(tenantId: string): Promise<{ deleted: string[]; errors: string[] }> {
+  const deleted: string[] = [];
+  const errors: string[] = [];
+  let candidates: Array<{ id: string }> = [];
+  try {
+    const res: any = await Tickets.get({ tenantId }, 1, 1000);
+    candidates = (res?.data ?? []).map((t: any) => ({ id: t.id }));
+  } catch {
+    // Indexed query failed (well-known platform quirk on some fields). Fall back to brute-scan.
+  }
+  if (candidates.length === 0) {
+    try {
+      const res: any = await Tickets.get({}, 1, 1000);
+      candidates = (res?.data ?? [])
+        .filter((t: any) => t?.data?.tenantId === tenantId)
+        .map((t: any) => ({ id: t.id }));
+    } catch (err: any) {
+      errors.push(`scan_failed: ${err?.message ?? String(err)}`);
+    }
+  }
+  for (const t of candidates) {
+    try {
+      await Tickets.delete(t.id);
+      deleted.push(t.id);
+    } catch (err: any) {
+      errors.push(`${t.id}: ${err?.message ?? String(err)}`);
+    }
+  }
+  return { deleted, errors };
+}
 
 function flatten(entry: any) {
   if (!entry) return null;
@@ -196,11 +227,24 @@ export default new LuaWebhook({
         if (!id) {
           return { success: false, error: 'validation', message: 'id is required' };
         }
+        const cascade = await deleteTicketsForTenant(id);
         try {
           await Tenants.delete(id);
-          return { success: true, deletedId: id };
+          return {
+            success: true,
+            deletedId: id,
+            deletedTicketIds: cascade.deleted,
+            deletedTicketCount: cascade.deleted.length,
+            cascadeErrors: cascade.errors.length > 0 ? cascade.errors : undefined
+          };
         } catch (err: any) {
-          return { success: false, error: 'delete_failed', message: err?.message || 'Failed to delete tenant' };
+          return {
+            success: false,
+            error: 'delete_failed',
+            message: err?.message || 'Failed to delete tenant',
+            deletedTicketIds: cascade.deleted,
+            deletedTicketCount: cascade.deleted.length
+          };
         }
       }
 

@@ -14,8 +14,41 @@
  * No tenant/vendor identity lookup here — that's handled by GetUserContext.
  */
 
-import { PreProcessor } from 'lua-cli';
+import { PreProcessor, Lua } from 'lua-cli';
 import { EMERGENCY_KEYWORDS } from '../utils/constants.js';
+import { collectPhones } from '../utils/identity.js';
+
+// [WA-PHONE-RECOVERY-2026-06-08] Recover the WhatsApp sender's phone from the
+// raw channel webhook payload. On this agent's WhatsApp channel, User.get()
+// ._luaProfile.mobileNumbers is empty, so the resolver has only user.id to match
+// on — making admin-seeded contacts (which carry a phone, not a user.id)
+// unreachable. Meta delivers the verified sender as messages[].from /
+// contacts[].wa_id; some providers use a flat from/wa_id. This is a CHANNEL
+// identifier (not user-typed), so it's safe to trust. We stash it on the user
+// record as _waChannelPhone; GetUserContextTool reads it into profilePhones.
+// To revert: remove this helper, the recovery block in execute(), and the
+// matching read in GetUserContextTool.
+function recoverWhatsAppPhone(): string[] {
+  try {
+    const payload: any = (Lua as any)?.request?.webhook?.payload;
+    if (!payload) return [];
+    const out: string[] = [];
+    const consider = (v: any) => {
+      if (typeof v === 'string' && v.replace(/\D/g, '').length >= 7) out.push(v);
+    };
+    for (const e of Array.isArray(payload.entry) ? payload.entry : []) {
+      for (const c of Array.isArray(e?.changes) ? e.changes : []) {
+        const val = c?.value ?? {};
+        for (const m of Array.isArray(val.messages) ? val.messages : []) consider(m?.from);
+        for (const ct of Array.isArray(val.contacts) ? val.contacts : []) consider(ct?.wa_id);
+      }
+    }
+    for (const k of ['from', 'wa_id', 'waId', 'author', 'sender', 'msisdn']) consider(payload?.[k]);
+    return collectPhones(out);
+  } catch {
+    return [];
+  }
+}
 
 // Subset of EMERGENCY_KEYWORDS that require evacuation / 911 first.
 const LIFE_THREATENING_KEYWORDS = [
@@ -83,6 +116,27 @@ export default new PreProcessor({
   priority: 10,
 
   execute: async (user, messages, channel) => {
+    // [WA-PHONE-RECOVERY-2026-06-08] Diagnostic + stash. Runs first so the
+    // recovered phone is persisted before get_user_context reads the user record.
+    try {
+      if (channel === 'whatsapp') {
+        const payload: any = (Lua as any)?.request?.webhook?.payload;
+        const recovered = recoverWhatsAppPhone();
+        console.log('[WA-PHONE-RECOVERY]', JSON.stringify({
+          channel,
+          payloadPresent: !!payload,
+          payloadKeys: payload ? Object.keys(payload) : null,
+          recovered,
+          profileMobileNumbers: (user as any)?._luaProfile?.mobileNumbers ?? null
+        }));
+        if (recovered.length > 0) {
+          try { await user.update({ _waChannelPhone: recovered[0] }); } catch { /* non-fatal */ }
+        }
+      }
+    } catch (e: any) {
+      console.log('[WA-PHONE-RECOVERY] error', e?.message ?? String(e));
+    }
+
     try {
       const lower = extractText(messages as any[]);
       if (!lower) return { action: 'proceed' as const };
