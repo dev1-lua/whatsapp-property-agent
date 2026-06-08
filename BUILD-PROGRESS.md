@@ -1,7 +1,125 @@
 # Build Progress — Property Maintenance Demo (v2, Lua-native)
 
 > Living document. Updated as we go. Source of truth = `docs/info/*.md` (spec).
-> Last major update: 2026-05-12 (day 2 — architectural pivot to unified contacts).
+> Last major update: 2026-06-08 (WhatsApp phone recovery + vendor-ping routing).
+
+## Day 5 — WhatsApp phone recovery + vendor notification routing (2026-06-08)
+
+Live demo prep with Mahmoud as a real vendor (WhatsApp user.id `25b1875c-…`, +201144444361) surfaced two issues. Both trace to the "Lua AI (US)" WhatsApp channel **not populating `_luaProfile.mobileNumbers`** for some senders — his is empty, the tenant's (+91…) is populated.
+
+### 1. Inbound recognition — FIXED & VERIFIED ✅
+**Symptom:** admin adds vendor by phone, but on WhatsApp he gets "I can't find you on file."
+**Cause:** channel gives only `user.id` (no phone); IDENTITY-LOCK-v2 won't match a chat-typed phone; the admin-created row has no `userId` → nothing links them.
+**Fix `[WA-PHONE-RECOVERY-2026-06-08]`:**
+- `src/preprocessors/emergency-triage.preprocessor.ts` — on WhatsApp, recover the sender number from the raw webhook payload (`Lua.request.webhook.payload` → Meta `messages[].from` / `contacts[].wa_id`) and stash it on the user record as `_waChannelPhone`. Channel-derived, not user-typed → trust boundary intact.
+- `src/tools/intake/GetUserContextTool.ts` — read `_waChannelPhone` into `profilePhones` so the resolver phone-matches seeded contacts.
+- Verified in prod logs (`[WA-PHONE-RECOVERY] payloadPresent:true, recovered:[…]`); Mahmoud is recognized as a vendor and can pull his jobs.
+**Data fix:** stamped his WhatsApp `user.id` onto his vendor contact row via vendors webhook `PUT {id, userId}` (the admin form can't capture user.id). Note: deleting + re-adding the vendor drops the stamp → must re-stamp the new row.
+
+### 2. Outbound vendor ping — FIX IMPLEMENTED, NOT YET VERIFIED ⏳
+**Symptom:** ticket assigned to Mahmoud → he never receives the "New job assigned" push; only sees jobs when he pulls ("check assignments").
+**Root cause (NOT the profile phone — in-thread replies to him deliver fine):** the SDK's `User.get(vendorUserId).send()` → `sendMessage()` → `getAdminUser()` → POSTs to the **agent owner's** conversation, ignoring the target userId. Proactive cross-user pings land on the admin, never the vendor. (Explains "it used to work" — when the owner tested the vendor side, the ping arrived in the owner's own chat.)
+**Fix `[VENDOR-PING-FIX2-2026-06-08]`** in `src/tools/intake/CreateMaintenanceTicketTool.ts`: bypass `send()`; POST directly to the vendor's conversation — `POST {LUA_API_URL}/admin/agents/{AGENT_ID}/conversations/{vendorUserId}` with `{messages}` via `fetch` + `env('LUA_API_KEY')` (proven pattern from `ResetMyIdentityTool`; the SDK's internal `httpPost` is NOT reachable at runtime — first attempt died with `u.httpPost is not a function`).
+**Status:** pushed as tenant **v1.0.42**, **NOT deployed** — production still runs **v1.0.40** (the failed httpPost attempt). TODO: deploy v1.0.42 → one test ticket (heating/plumbing/structural, fresh unit) → confirm `[VENDOR-PING] direct POST {ok:true}` AND Mahmoud receives it. Same bug affects all cross-user sends (`RequestTenantConfirmation`, `ClaimJob`, `daily-report`).
+
+### Open / escalated to platform eng
+- Why does WhatsApp capture `mobileNumbers` for some senders (+91…) but not others (Mahmoud +20…)? Suspect the `link-me-to:<agentId>` sandbox quick-test flow skips number capture.
+- SDK: `User.get(userId).send()` should target that user (per docs) but routes to the agent owner — reported.
+- Temporary `[VENDOR-PING]` / `[WA-PHONE-RECOVERY]` console diagnostics still in place — strip once the push is confirmed.
+
+## Day 4 — IDENTITY-LOCK-v2 (2026-05-14)
+
+### The bug Mahmoud reported
+
+On production WhatsApp, a registered tenant could be impersonated by anyone who typed their phone number in chat. Exact scenario from his screenshots:
+
+1. Caller sends "My name is Karim Hassan" → agent acknowledges
+2. Caller sends "That's my number 353861000001" (which is Laura Murphy's stored number) → **agent flipped identity and started serving them as Laura Murphy at Temple Place 3B**
+3. Caller sends "Laura" → agent confirmed switch
+
+Root cause: `get_user_context` was looking up by the chat-typed phone with no guard. When the typed phone matched an existing contact, the agent identified the caller as that contact — even though the actual channel-verified identity was different.
+
+Additional discovery: the "Lua AI (US)" WhatsApp demo channel **does not propagate `_luaProfile.phone` or `_luaProfile.email`** to the agent runtime. Only the platform's `user.id` is reliably available. So a v1 fix gated on `channelVerified = hasRealProfilePhone || hasRealProfileEmail` would not have engaged for this channel.
+
+### The fix — `[IDENTITY-LOCK-v2]`
+
+Every change is tagged with the literal string `[IDENTITY-LOCK-v2]` in a code comment. To revert: `grep -rn "IDENTITY-LOCK-v2" src/` and remove each marked block.
+
+**File-by-file:**
+
+| File | What changed |
+|---|---|
+| `src/tools/intake/GetUserContextTool.ts` | (1) `findContact()` takes `userId` and looks it up **first**, returning `matchedBy: 'userId' \| 'phone' \| 'email'`. (2) Mismatch guard: if phone/email matched a contact whose stored `userId` differs from caller's `user.id`, return `unregistered` with a strong note. (3) `cacheStillMatches()` treats `userId` equality as sufficient validity; invalidates cache when no positive signal exists. (4) `inputPhoneForLookup = undefined` always — chat-typed phone/email are **never** used for identity lookup. (5) Backfill of `userId` onto a matched contact only happens when the contact has no existing `userId` (no overwriting). (6) Identity-lock-note in tool result fires whenever typed phone/email differs from the channel-verified one. |
+| `src/tools/intake/RegisterSelfAsTenantTool.ts` | (1) Allow `user.id`-only registration when channel doesn't propagate phone/email. (2) Dedupe by `userId` first (post-reset retry merges into original row instead of duplicating). |
+| `src/tools/intake/RegisterSelfAsVendorTool.ts` | Same two changes as tenant. |
+| `src/webhooks/admin/clear-userid.webhook.ts` | **NEW FILE.** One-shot cleanup webhook to clear the `userId` field on seeded contact rows that were contaminated by the old auto-backfill. Matches by (name, phone) against the seed list — only touches Laura/Aoife/James/Karim/Sean/Maria/Tom/Padraig/Niamh/Conor. Real registrations (Mahmoud Saleh / mayank / Firdosh / etc.) are left untouched. Supports `{dryRun: true}` preview mode. |
+| `src/index.ts` | Imports + registers `clear-userid` webhook in the agent's webhooks array. |
+
+**Persona changes (v27):**
+- New paragraph in section 0: "CHANNEL IDENTITY IS LOCKED" — instructs the LLM to refuse identity switches when the tool result contains the identity-lock note, and to never call register tools with a typed identifier.
+- New paragraph: "NAME-ONLY CLAIMS NEVER SWITCH IDENTITY" — when GUC has already resolved an identity this thread, a name-only claim must not fork into "would you like to register as X?".
+
+### Architectural shift
+
+The identity hierarchy is now explicit:
+
+```
+Strongest → weakest:
+  1. user.id            (always present — Lua platform's stable channel session ID)
+  2. _luaProfile.phone  (when channel propagates it — real WhatsApp/SMS)
+  3. _luaProfile.email  (when channel propagates it)
+  4. TEST_PROFILE_PHONE / TEST_USER_PHONE  (test-only overrides)
+
+Chat-typed phone/email are NOT identifiers. They are passed to GUC ONLY for
+the mismatch-note messaging — never for cross-account lookup.
+```
+
+The only way to "release" a registered identity is admin deletion of the contact row from the HTML UI.
+
+### Sandbox QA — 9/9 pass
+
+| # | Test | Result |
+|---|---|---|
+| T1 | Verified caller types another tenant's name + phone (4 turns) | ✅ Held identity |
+| T2 | Fresh `user.id`, no channel phone, types "I'm Laura Murphy 353861000001" | ✅ Returned `unregistered` — typed phone ignored |
+| T3 | T2 caller registers as "Test Spoofer", then types Laura's phone | ✅ `userId` lock held |
+| T4 | Verified caller happy path (Aoife → leak intake) | ✅ Photos + access notes requested |
+| T5 | Multi-unit tenant (James) | ✅ Asks which of unit 7 / 12 |
+| T6 | Admin routing (Niamh: open count + vendors by specialty) | ✅ Both tools fired |
+| T7 | Vendor flow (Sean Kelly, list jobs) | ✅ Identified |
+| T8 | Emergency triage ("I smell gas") | ✅ Preprocessor blocks, safety script returned |
+| T9 | `reset_my_identity` + re-resolve | ✅ Channel re-identifies same user via `user.id` |
+
+### Production state after deploy
+
+- **Deployed:** tenant v1.0.33, vendor v1.0.26, persona v27, `clear-userid` v1.0.4
+- **Webhook deploys that showed "Version is already active":** not failures — the latest pushed version was already deployed. All current code is live.
+- **Production data:** dry-ran `clear-userid` against prod — all 10 seeded contacts already had `userId: null`. No cleanup needed. (The contamination I worried about turned out to be sandbox-only.)
+- **No other code or systems touched** — ticket creation, vendor claim/quote/start/complete, admin routing, emergency triage, escalation jobs, daily report job, all postprocessors all unchanged.
+
+### Cleanup webhook usage (for reference)
+
+```bash
+# Preview (no writes)
+curl -s -X POST "https://webhook.heylua.ai/baseAgent_agent_1778570087307_uu37q4v0m/clear-userid" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"POST","dryRun":true}'
+
+# Apply
+curl -s -X POST "https://webhook.heylua.ai/baseAgent_agent_1778570087307_uu37q4v0m/clear-userid" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"POST","confirm":true}'
+```
+
+### How to revert if needed
+
+1. `grep -rn "IDENTITY-LOCK-v2" src/` — lists every changed location across 5 files
+2. Remove each tagged block. The header at the top of `GetUserContextTool.ts` documents the previous behavior in detail.
+3. Delete `src/webhooks/admin/clear-userid.webhook.ts`
+4. Remove its import + array entry from `src/index.ts`
+5. `lua push all --force && /lua-deploy`
+
+---
 
 ## Day 2 plan — phone-first unified contacts + WhatsApp role routing
 
@@ -430,13 +548,11 @@ ADMIN_EMAILS=dev@luaimplementation.ai
 
 ## Known issues going into next session
 
-### 🟡 Chat-history bleed across WhatsApp sessions
-**Symptom:** Same WhatsApp number → after DB nuke, agent still "remembers" old tickets and names because Lua's chat thread persists across sessions. Reads stale transcript and confabulates.
-**Reproduction:** Operator's WhatsApp had old session with `MT-2605-8513AO` and "Devashish" identity. After full clear-data + re-seed, sent "hi my sink is leaking" — agent replied "Hi Devashish, you already have a ticket for MT-2605-8513AO". The ticket doesn't exist in DB.
-**Fix options for next session:**
-1. **Add `reset_my_identity` tool** — agent calls it when user says "I'm new" / "reset" / "forget me". Tool clears `user.userType`, `user.identityId`, `tenantId`, `vendorId`. Persona updated to recognize the cue.
-2. **Programmatic chat-thread clear** — find Lua API to clear `User.getChatHistory()` for a given user.
-3. **Use fresh WhatsApp numbers for each tester** — workaround, not a fix.
+### ✅ RESOLVED — Identity impersonation via typed phone (2026-05-14)
+Fixed under `[IDENTITY-LOCK-v2]` — see Day 4 section. Chat-typed phone/email no longer match existing contacts; identity comes from `user.id` + channel profile only. Mismatch guard returns `unregistered` if phone matches a contact owned by a different `user.id`. Sandbox QA 9/9 green; deployed to production tenant v1.0.33 / vendor v1.0.26 / persona v27.
+
+### ✅ RESOLVED — Chat-history bleed across WhatsApp sessions
+`reset_my_identity` tool shipped earlier; with IDENTITY-LOCK-v2, post-reset the channel re-identifies the same user via `user.id` (their contact row persists), so reset wipes the conversational state but not their identity. To fully release a contact identity, admin must delete the row from the HTML UI.
 
 ### 🟡 Email delivery is stubbed
 `src/utils/email-notifications.ts` writes a `communications` row but doesn't actually send. The user explicitly chose to defer this. Wire via `lua channels` (native Email) or swap in Resend/SMTP.
@@ -512,6 +628,7 @@ npx lua logs --type agent_error --limit 5
 
 ## What to tackle first in next session
 
-1. **`reset_my_identity` tool** — solves the chat-history bleed. Persona needs to recognize "I'm new", "reset", "forget me", "start over" cues.
-2. **Optional:** "Clear tickets only" button in HTML (currently the only clear path is full nuke).
-3. **Optional:** Wire real email so the approval-flow email beat works for the demo.
+1. **Optional:** "Clear tickets only" button in HTML (currently the only clear path is full nuke).
+2. **Optional:** Wire real email so the approval-flow email beat works for the demo.
+3. **Optional:** Surface the `clear-userid` cleanup as a button in the HTML admin UI (currently curl-only). Useful if seeded contacts ever get re-contaminated by a regression.
+4. **Optional:** Add a `lua channels` integration for the demo WhatsApp number so `_luaProfile.phone` actually propagates — would give belt-and-suspenders identity verification beyond `user.id`-only.
