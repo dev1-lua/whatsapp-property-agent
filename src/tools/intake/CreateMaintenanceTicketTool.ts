@@ -319,6 +319,25 @@ export class CreateMaintenanceTicketTool implements LuaTool {
                 if (firstImage) {
                   msgs.push({ type: 'text', text: `Photo: ${firstImage}` });
                 }
+                // [VENDOR-PING-FIX3-2026-06-08] Split-identity fix. The vendor's
+                // stamped/session userId can be phone-less (mobileNumbers empty) — the
+                // conversations endpoint then 400s ("No last interaction found"). The
+                // SAME phone, via User.get({phone}), resolves to the PROFILE user that
+                // actually has the number captured; target THAT user so the send can be
+                // addressed. Falls back to the stamped vendor.userId.
+                let pingUserId: string = vendor.userId;
+                try {
+                  const vendorPhone = Array.isArray(vendor.phones) ? vendor.phones[0] : undefined;
+                  if (vendorPhone) {
+                    const profileUser: any = await User.get({ phone: vendorPhone });
+                    const profUid: string | undefined = profileUser?._luaProfile?.userId;
+                    const profMobiles = profileUser?._luaProfile?.mobileNumbers;
+                    if (profUid && Array.isArray(profMobiles) && profMobiles.length > 0) {
+                      pingUserId = profUid;
+                    }
+                  }
+                } catch { /* keep stamped vendor.userId */ }
+                console.log('[VENDOR-PING] target', JSON.stringify({ stamped: vendor.userId, pingUserId }));
                 // [VENDOR-PING-FIX2-2026-06-08] vendorUser.send() POSTs to the agent
                 // OWNER's conversation (SDK sendMessage → getAdminUser().uid), so the
                 // vendor never receives it. Make the SAME admin API call ourselves but
@@ -329,7 +348,7 @@ export class CreateMaintenanceTicketTool implements LuaTool {
                 const apiKey = env('LUA_API_KEY') ?? '';
                 const apiBase = env('LUA_API_URL') || 'https://api.heylua.ai';
                 const agentIdEnv = env('AGENT_ID') ?? '';
-                const convUrl = `${apiBase}/admin/agents/${encodeURIComponent(agentIdEnv)}/conversations/${encodeURIComponent(vendor.userId)}`;
+                const convUrl = `${apiBase}/admin/agents/${encodeURIComponent(agentIdEnv)}/conversations/${encodeURIComponent(pingUserId)}`;
                 const pingResp = await fetch(convUrl, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

@@ -127,7 +127,7 @@ agent:
 skills:
   - name: tenant
     skillId: 64acd927-3f14-4f13-aa92-123b0a79ccd1
-    version: 1.0.42
+    version: 1.0.43
   - name: vendor
     skillId: 0237f1ba-b115-4e02-a6fd-cf8eb24f91ff
     version: 1.0.30
@@ -171,6 +171,9 @@ webhooks:
   - name: clear-userid
     version: 1.0.7
     webhookId: c50f0996-7c21-4384-a23f-12cf4c8ffaf8
+  - name: diag-profile
+    version: 1.0.1
+    webhookId: 5cb5f047-0f8f-41de-86f6-252fd4765141
 jobs:
   - jobId: c183e92f-5e3d-4741-8e15-c7aeed79804d
     name: escalation-check
@@ -191,6 +194,6 @@ postprocessors:
     version: 1.0.26
 mcpServers: []
 backup:
-  activeVersion: 41
-  lastHash: 75103f8f4c17d4a1027b3e17627b5d5fc5fba6b79e6222a165f2c762cda53f99
-  lastPushedAt: '2026-06-08T08:54:26.036Z'
+  activeVersion: 43
+  lastHash: 2786975d9b0d571bc911057c96caefa5adbb2210623b452d53d7fb0302f5eb93
+  lastPushedAt: '2026-06-08T12:47:06.553Z'

@@ -14,6 +14,9 @@ import clearDataWebhook from './webhooks/admin/clear-data.webhook.js';
 // [IDENTITY-LOCK-v2] one-shot cleanup webhook — remove this import + the
 // `clearUseridWebhook` entry from the webhooks array below to revert.
 import clearUseridWebhook from './webhooks/admin/clear-userid.webhook.js';
+// [DIAG-PROFILE-2026-06-08] read-only profile-capture verifier — remove this
+// import + the `diagProfileWebhook` entry below to revert.
+import diagProfileWebhook from './webhooks/admin/diag-profile.webhook.js';
 
 // External integration webhooks
 import vendorResponseWebhook from './webhooks/vendor-response.webhook.js';
@@ -222,7 +225,8 @@ const agent = new LuaAgent({
     financeApprovalWebhook,
     escalationResponseWebhook,
     inboundEmailWebhook,
-    openTicketsWebhook
+    openTicketsWebhook,
+    diagProfileWebhook // [DIAG-PROFILE-2026-06-08]
   ],
 
   jobs: [escalationJob, dailyReportJob],
